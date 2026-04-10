@@ -95,39 +95,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No rows provided." }, { status: 400 });
     }
 
-    // --- CREDIT SYSTEM LOGIC ---
-    // Calculate required credits (10 credits per email/row)
-    const requiredCredits = rows.length * 10;
-
-    // Fetch user's current credits_balance
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("credits_balance")
-      .eq("id", user.id)
-      .single();
-
-    if (profileError || !profile) {
-      return NextResponse.json({ error: "Could not fetch user profile to verify credits." }, { status: 500 });
-    }
-
-    const currentBalance = profile.credits_balance || 0;
-
-    if (currentBalance < requiredCredits) {
-      return NextResponse.json({ 
-        error: `Not enough credits. You need ${requiredCredits} credits, but you only have ${currentBalance}. Please recharge.` 
-      }, { status: 403 });
-    }
-
-    // Deduct credits immediately
-    const newBalance = currentBalance - requiredCredits;
-    const { error: deductError } = await supabase
-      .from("profiles")
-      .update({ credits_balance: newBalance })
-      .eq("id", user.id);
-
-    if (deductError) {
-      return NextResponse.json({ error: "Failed to deduct credits. Please try again." }, { status: 500 });
-    }
+    // No credit system logic - Unlimited Free Plan
     // ---------------------------
 
     const leads: EnrichedLead[] = [];

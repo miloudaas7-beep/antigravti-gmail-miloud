@@ -19,7 +19,7 @@ export default function LoginPage() {
           "https://www.googleapis.com/auth/userinfo.email",
           "https://www.googleapis.com/auth/userinfo.profile",
         ].join(" "),
-        queryParams: { access_type: "offline", prompt: "consent" },
+        queryParams: { access_type: "offline" },
       },
     });
     setLoading(false);

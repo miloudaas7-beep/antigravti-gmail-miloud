@@ -16,39 +16,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // --- CREDIT SYSTEM LOGIC ---
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("credits_balance")
-      .eq("id", user.id)
-      .single();
-
-    const currentBalance = profile?.credits_balance || 0;
-    const requiredCredits = 10; // 10 credits per email generated
-
-    if (currentBalance < requiredCredits) {
-      return NextResponse.json({ 
-        error: `Not enough credits. You need ${requiredCredits} credits, but you only have ${currentBalance}. Please recharge.` 
-      }, { status: 403 });
-    }
-
-    // Deduct credits
-    const { error: deductError } = await supabase
-      .from("profiles")
-      .update({ credits_balance: currentBalance - requiredCredits })
-      .eq("id", user.id);
-
-    if (deductError) {
-      return NextResponse.json({ error: "Failed to deduct credits." }, { status: 500 });
-    }
-    // ---------------------------
+    // No credit system logic - Unlimited Free Plan
 
     if (!prompt || !rowData) {
       return NextResponse.json(

@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area
 } from "recharts";
-import { TrendingUp, Mail, Users, Zap, ArrowUpRight, ArrowDownRight, Clock } from "lucide-react";
+import { TrendingUp, Mail, Users, Zap, ArrowUpRight, ArrowDownRight, Clock, Calendar } from "lucide-react";
 import Link from "next/link";
 
 const WEEKLY_DATA = [
@@ -20,40 +20,103 @@ const WEEKLY_DATA = [
 
 export default function DashboardPage() {
   const supabase = createClient();
+  const [period, setPeriod] = useState<"daily" | "weekly" | "monthly">("weekly");
+  const [chartData, setChartData] = useState<any[]>([]);
+
   const [stats, setStats] = useState({
     totalLeads: 0,
     emailsSent: 0,
-    credits: 100,
-    openRate: 32.4,
+    credits: "∞",
+    openRate: "0.0",
     campaigns: 0,
     leadsToday: 0,
+    leadsChange: 0,
+    emailsChange: 0,
   });
   const [recentLeads, setRecentLeads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
+      setLoading(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const [profileRes, leadsRes, emailsRes, campaignsRes] = await Promise.all([
-        supabase.from("profiles").select("credits_balance, emails_sent_today").eq("id", user.id).single(),
-        supabase.from("leads").select("id, created_at", { count: "exact" }).eq("user_id", user.id),
-        supabase.from("email_logs").select("id", { count: "exact" }).eq("user_id", user.id),
-        supabase.from("campaigns").select("id", { count: "exact" }).eq("user_id", user.id),
+      const now = new Date();
+      let startDate = new Date();
+      if (period === "daily") startDate.setDate(now.getDate() - 1);
+      else if (period === "weekly") startDate.setDate(now.getDate() - 7);
+      else if (period === "monthly") startDate.setDate(now.getDate() - 30);
+
+      const [leadsRes, emailsRes] = await Promise.all([
+        supabase.from("leads").select("id, created_at").eq("user_id", user.id).gte("created_at", startDate.toISOString()),
+        supabase.from("email_logs").select("id, status, sent_at").eq("user_id", user.id).gte("sent_at", startDate.toISOString())
       ]);
 
-      const today = new Date().toISOString().split("T")[0];
-      const leadsToday = leadsRes.data?.filter(l => l.created_at?.startsWith(today)).length ?? 0;
+      const leads = leadsRes.data || [];
+      const emails = emailsRes.data || [];
+
+      // Calculate totals
+      const totalLeads = leads.length;
+      const emailsSent = emails.length;
+      
+      // Compute Open Rate
+      const openedEmails = emails.filter(e => e.status === "opened").length;
+      const openRate = emailsSent > 0 ? ((openedEmails / emailsSent) * 100).toFixed(1) : "0.0";
+
+      // Compute graph data
+      let aggregatedData: Record<string, { day: string; leads: number; emails: number; dateStr: string }> = {};
+      
+      const formatGroup = (d: string) => {
+        const dateObj = new Date(d);
+        if (period === "daily") {
+          return dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+        return dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+      };
+
+      const daysArray = [ ...Array(period === 'daily' ? 24 : period === 'weekly' ? 7 : 30) ].map((_, i) => {
+        const d = new Date(now);
+        if (period === 'daily') d.setHours(now.getHours() - (23 - i));
+        else d.setDate(now.getDate() - ((period === 'weekly' ? 6 : 29) - i));
+        
+        const key = period === 'daily' 
+            ? `${d.getMonth()}-${d.getDate()}-${d.getHours()}`
+            : `${d.getMonth()}-${d.getDate()}`;
+
+        aggregatedData[key] = {
+           day: period === 'daily' ? `${d.getHours()}:00` : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+           leads: 0,
+           emails: 0,
+           dateStr: d.toISOString()
+        };
+        return key;
+      });
+
+      leads.forEach(l => {
+          const d = new Date(l.created_at);
+          const key = period === 'daily' ? `${d.getMonth()}-${d.getDate()}-${d.getHours()}` : `${d.getMonth()}-${d.getDate()}`;
+          if (aggregatedData[key]) aggregatedData[key].leads++;
+      });
+      emails.forEach(e => {
+          const d = new Date(e.sent_at);
+          const key = period === 'daily' ? `${d.getMonth()}-${d.getDate()}-${d.getHours()}` : `${d.getMonth()}-${d.getDate()}`;
+          if (aggregatedData[key]) aggregatedData[key].emails++;
+      });
+
+      const finalChartData = daysArray.map(k => aggregatedData[k]);
 
       setStats({
-        totalLeads: leadsRes.count ?? 0,
-        emailsSent: emailsRes.count ?? 0,
-        credits: profileRes.data?.credits_balance ?? 0,
-        openRate: 32.4,
-        campaigns: campaignsRes.count ?? 0,
-        leadsToday,
+        totalLeads,
+        emailsSent,
+        credits: "∞",
+        openRate,
+        campaigns: 0,
+        leadsToday: leads.filter(l => new Date(l.created_at).getDate() === now.getDate()).length,
+        leadsChange: totalLeads > 0 ? 12 : 0, // Placeholder
+        emailsChange: emailsSent > 0 ? 8 : 0, // Placeholder
       });
+      setChartData(finalChartData);
 
       const { data: recent } = await supabase
         .from("leads")
@@ -66,15 +129,15 @@ export default function DashboardPage() {
       setLoading(false);
     };
     load();
-  }, []);
+  }, [period, supabase]);
 
   const STAT_CARDS = [
     {
       label: "Total Leads",
       value: stats.totalLeads,
       icon: <Users size={20} />,
-      change: "+18%",
-      positive: true,
+      change: `+${stats.leadsChange}%`,
+      positive: stats.leadsChange >= 0,
       accent: "#6c63ff",
       suffix: "",
     },
@@ -82,8 +145,8 @@ export default function DashboardPage() {
       label: "Emails Sent",
       value: stats.emailsSent,
       icon: <Mail size={20} />,
-      change: "+12%",
-      positive: true,
+      change: `+${stats.emailsChange}%`,
+      positive: stats.emailsChange >= 0,
       accent: "#00d4ff",
       suffix: "",
     },
@@ -91,18 +154,18 @@ export default function DashboardPage() {
       label: "Open Rate",
       value: stats.openRate,
       icon: <TrendingUp size={20} />,
-      change: "+2.1%",
+      change: `Live`,
       positive: true,
       accent: "#00e676",
       suffix: "%",
     },
     {
       label: "Remaining Credits",
-      value: stats.credits,
+      value: "∞",
       icon: <Zap size={20} />,
-      change: stats.leadsToday > 0 ? `-${stats.leadsToday} today` : "No change",
-      positive: false,
-      accent: "#ffd600",
+      change: "Unlimited Free Plan",
+      positive: true,
+      accent: "#a855f7",
       suffix: "",
     },
   ];
@@ -119,7 +182,28 @@ export default function DashboardPage() {
             {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
           </p>
         </div>
-        <div style={{ display: "flex", gap: 12 }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          {/* Time Filter Toggle */}
+          <div style={{
+            display: "flex", background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)", 
+            borderRadius: "var(--radius-md)", overflow: "hidden", padding: 2
+          }}>
+            {["daily", "weekly", "monthly"].map(p => (
+               <button 
+                 key={p}
+                 onClick={() => setPeriod(p as any)}
+                 style={{
+                   padding: "6px 14px", fontSize: "0.8rem", fontWeight: 600, border: "none",
+                   background: period === p ? "var(--bg-secondary)" : "transparent",
+                   color: period === p ? "var(--text-primary)" : "var(--text-muted)",
+                   borderRadius: "var(--radius-md)", cursor: "pointer", transition: "all 0.2s"
+                 }}
+               >
+                 {p.charAt(0).toUpperCase() + p.slice(1)}
+               </button>
+            ))}
+          </div>
+
           <Link href="/dashboard/emails">
             <button className="btn btn-primary" id="start-search-btn">
               <Mail size={16} /> New Campaign
@@ -170,7 +254,7 @@ export default function DashboardPage() {
             <span className="badge badge-green">↑ +23%</span>
           </div>
           <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={WEEKLY_DATA} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
+            <AreaChart data={chartData} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
               <defs>
                 <linearGradient id="leadsGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#6c63ff" stopOpacity={0.3} />
@@ -313,24 +397,27 @@ export default function DashboardPage() {
       <div className="glass-card" style={{ padding: 24 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
           <div>
-            <h3 style={{ fontSize: "0.95rem", fontWeight: 700 }}>Credit Usage</h3>
+            <h3 style={{ fontSize: "0.95rem", fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+              <Zap size={16} color="var(--accent-purple)" />
+              Account Usage
+            </h3>
             <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: 2 }}>
-              {stats.credits} of {stats.credits + stats.totalLeads} credits remaining
+              Free Plan — Unlimited Credits
             </p>
           </div>
           <Link href="/dashboard/settings">
             <button className="btn btn-primary btn-sm" id="buy-more-credits-btn">⚙️ Settings</button>
           </Link>
         </div>
-        <div className="progress-bar">
+        <div className="progress-bar" style={{ background: "rgba(168,85,247,0.15)" }}>
           <div
             className="progress-fill"
-            style={{ width: `${Math.max(5, (stats.credits / (stats.credits + stats.totalLeads || 1)) * 100)}%` }}
+            style={{ width: `100%`, background: "linear-gradient(90deg, #6c63ff, #a855f7)", borderRadius: "var(--radius-full)" }}
           />
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: "0.75rem", color: "var(--text-muted)" }}>
-          <span>Used: {stats.totalLeads} credits</span>
-          <span>Available: {stats.credits} credits</span>
+          <span>Generated: ∞ leads</span>
+          <span style={{color: "var(--accent-purple)", fontWeight: 600}}>Always Free</span>
         </div>
       </div>
     </div>

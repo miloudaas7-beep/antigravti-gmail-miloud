@@ -62,14 +62,9 @@ export async function POST(req: NextRequest) {
 
   const admin = createAdminClient();
 
-  // Check profile and credits
-  const { data: profile } = await admin.from("profiles").select("credits_balance, emails_sent_today, last_email_reset").eq("id", user.id).single();
+  // Check profile
+  const { data: profile } = await admin.from("profiles").select("emails_sent_today, last_email_reset").eq("id", user.id).single();
   if (!profile) return new Response(JSON.stringify({ error: "Profile not found" }), { status: 404 });
-
-  let currentCredits = profile.credits_balance || 0;
-  if (currentCredits <= 0) {
-    return new Response(JSON.stringify({ error: "Not enough credits. Please recharge your balance." }), { status: 403 });
-  }
 
   // Reset daily count if day changed (optional metric)
   const today = new Date().toISOString().split("T")[0];
@@ -112,10 +107,10 @@ export async function POST(req: NextRequest) {
       const send = (data: object) => controller.enqueue(encoder.encode(encode(data)));
 
       let sentCount = 0;
-      const total = Math.min(leads.length, currentCredits); // Can only send as many as credits available
+      const total = leads.length;
 
       if (total === 0) {
-        send({ type: "log", message: `⚠️ You do not have enough credits to start this campaign.`, level: "warning" });
+        send({ type: "log", message: `⚠️ No leads to process.`, level: "warning" });
         controller.close();
         return;
       }
@@ -150,12 +145,10 @@ export async function POST(req: NextRequest) {
 
           sentCount++;
           dailyTotal++;
-          currentCredits--; // Deduct 1 credit for sending
 
-          // Update profile daily count and credits
+          // Update profile daily count
           await admin.from("profiles").update({ 
-            emails_sent_today: dailyTotal,
-            credits_balance: currentCredits
+            emails_sent_today: dailyTotal
           }).eq("id", user.id);
 
           send({ type: "sent", id: cl.id, to_name: lead.company_name, to_email: lead.email });
@@ -171,11 +164,7 @@ export async function POST(req: NextRequest) {
           send({ type: "failed", id: cl.id, to_name: lead.company_name, to_email: lead.email, error: e.message });
         }
 
-        // Stop if credits hit 0
-        if (currentCredits <= 0) {
-          send({ type: "log", message: `⚠️ Out of credits. Stopping campaign.`, level: "warning" });
-          break;
-        }
+        // Reached end of campaign
       }
 
       // Mark campaign completed if all done
