@@ -8,7 +8,7 @@ export async function GET(request: Request) {
     const code = searchParams.get("code");
     const error = searchParams.get("error");
 
-    const appUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_VERCEL_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const appUrl = "https://antigravti-gmail-miloud.vercel.app";
 
     if (error) {
       return NextResponse.redirect(`${appUrl}/dashboard/settings?error=${error}`);
@@ -58,7 +58,7 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${appUrl}/dashboard/settings?success=1`);
   } catch (error: any) {
     console.error("OAuth callback error:", error);
-    const appUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_VERCEL_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const appUrl = "https://antigravti-gmail-miloud.vercel.app";
     return NextResponse.redirect(`${appUrl}/dashboard/settings?error=CallbackFailed`);
   }
 }
