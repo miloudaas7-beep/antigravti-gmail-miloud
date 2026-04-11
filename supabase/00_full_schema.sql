@@ -141,12 +141,12 @@ CREATE POLICY "Users manage own campaigns" ON public.campaigns USING (auth.uid()
 
 CREATE TABLE public.campaign_schedules (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-  campaign_id UUID REFERENCES public.campaigns(id) ON DELETE CASCADE UNIQUE,
+  campaign_id UUID REFERENCES public.campaigns(id) ON DELETE CASCADE, -- Unique Removed for multi-row logic Day by Day
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
-  days_of_week TEXT[] NOT NULL DEFAULT '{"Mon", "Tue", "Wed", "Thu", "Fri"}', -- e.g. ['Mon', 'Tue']
-  start_time TIME NOT NULL DEFAULT '08:00:00',
-  end_time TIME NOT NULL DEFAULT '17:00:00',
-  daily_volume INTEGER NOT NULL DEFAULT 50,
+  day_index INTEGER NOT NULL,
+  range_start INTEGER NOT NULL,
+  range_end INTEGER NOT NULL,
+  time_slots TEXT[] NOT NULL DEFAULT '{}',
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()

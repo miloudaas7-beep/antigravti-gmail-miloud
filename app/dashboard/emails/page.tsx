@@ -5,9 +5,10 @@ import Papa from "papaparse";
 import {
   UploadCloud, Play, Settings2, Wand2, Mail, Clock,
   Link2, FileSpreadsheet, ChevronRight, Send, Eye,
-  CheckCircle, XCircle, Loader, RefreshCw, AlertCircle
+  CheckCircle, XCircle, Loader, RefreshCw, AlertCircle, Calendar
 } from "lucide-react";
 import toast from "react-hot-toast";
+import ScheduleModal from "@/components/ScheduleModal";
 
 type RowResult = {
   email: string;
@@ -50,6 +51,10 @@ export default function AIEmailSenderPage() {
   const [results, setResults] = useState<RowResult[]>([]);
   const [summary, setSummary] = useState<any>(null);
   const [selectedResult, setSelectedResult] = useState<RowResult | null>(null);
+
+  // Scheduling
+  const [isScheduleOpen, setIsScheduleOpen] = useState(false);
+  const [isScheduling, setIsScheduling] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -164,6 +169,43 @@ export default function AIEmailSenderPage() {
       setStep("config");
     } finally {
       setIsRunning(false);
+    }
+  };
+
+  // ─── Schedule Campaign ───────────────────────────────────────
+  const handleSaveSchedule = async (schedules: any[]) => {
+    if (rows.length === 0) return toast.error("No contacts loaded.");
+    if (!prompt.trim()) return toast.error("Please write your email prompt.");
+    if (!emailColumn) return toast.error("Please select the Email column.");
+
+    setIsScheduling(true);
+    try {
+      const res = await fetch("/api/campaign/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rows,
+          prompt,
+          emailColumn,
+          nameColumn,
+          schedules
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to save schedule.");
+        return;
+      }
+      toast.success("Campaign scheduled successfully!");
+      setIsScheduleOpen(false);
+      
+      // Update UI to show Success State (or redirect)
+      setSummary({ total: rows.length, sent: 0, previews: 0, failed: 0 });
+      setStep("results");
+    } catch (err: any) {
+      toast.error(err.message || "Network error");
+    } finally {
+      setIsScheduling(false);
     }
   };
 
@@ -491,6 +533,24 @@ export default function AIEmailSenderPage() {
               </button>
             </div>
 
+            {/* Schedule Mode */}
+            <div style={{ padding: 20, background: "rgba(108,99,255,0.06)", border: "1px solid rgba(108,99,255,0.2)", borderRadius: "var(--radius-md)" }}>
+              <div style={{ fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                <Calendar size={16} color="var(--accent-purple)" /> Advanced Scheduling
+              </div>
+              <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: 14, lineHeight: 1.6 }}>
+                Build a pattern to distribute emails over 30 days automatically while your PC is off.
+              </p>
+              <button
+                className="btn btn-secondary"
+                style={{ width: "100%" }}
+                onClick={() => setIsScheduleOpen(true)}
+                disabled={isRunning || isScheduling}
+              >
+                <Calendar size={16} /> {isScheduling ? "Saving..." : "Schedule For Later"}
+              </button>
+            </div>
+
             <button className="btn btn-ghost" onClick={() => setStep("template")}>
               ← Back to Template
             </button>
@@ -599,6 +659,14 @@ export default function AIEmailSenderPage() {
           </div>
         </div>
       )}
+
+      {/* Modals */}
+      <ScheduleModal 
+        isOpen={isScheduleOpen} 
+        onClose={() => setIsScheduleOpen(false)} 
+        onSave={handleSaveSchedule} 
+        totalLeads={rows.length} 
+      />
     </div>
   );
 }
