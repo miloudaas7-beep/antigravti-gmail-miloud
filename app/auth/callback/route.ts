@@ -19,7 +19,7 @@ export async function GET(request: Request) {
       if (providerToken) {
         const admin = createAdminClient();
         
-        let retries = 4;
+        let retries = 3;
         let profileReady = false;
         while (retries > 0 && !profileReady) {
           const { data } = await admin.from("profiles").select("id").eq("id", userId).single();
@@ -29,6 +29,16 @@ export async function GET(request: Request) {
             await new Promise(r => setTimeout(r, 500));
             retries--;
           }
+        }
+
+        // Failsafe: If profile STILL missing (happens when DB is wiped but auth.users persists)
+        if (!profileReady) {
+           await admin.from("profiles").upsert({
+               id: userId,
+               email: data.session.user.email,
+               full_name: data.session.user.user_metadata?.full_name || "",
+               avatar_url: data.session.user.user_metadata?.avatar_url || ""
+           }, { onConflict: "id" });
         }
 
         await admin.from("user_tokens").upsert({

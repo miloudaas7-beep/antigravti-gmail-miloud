@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { google } from "googleapis";
 
 export async function GET(request: Request) {
@@ -47,7 +48,7 @@ export async function GET(request: Request) {
     }
 
     // Ensure the Supabase profile trigger has finished to avoid foreign key constraints
-    let retries = 4;
+    let retries = 3;
     let profileReady = false;
     while (retries > 0 && !profileReady) {
       const { data } = await supabase.from("profiles").select("id").eq("id", user.id).single();
@@ -57,6 +58,18 @@ export async function GET(request: Request) {
         await new Promise(r => setTimeout(r, 500));
         retries--;
       }
+    }
+
+    if (!profileReady) {
+       const admin = createAdminClient();
+       await admin.from("profiles").upsert({
+           id: user.id,
+           email: user.email,
+           full_name: user.user_metadata?.full_name || "",
+           avatar_url: user.user_metadata?.avatar_url || ""
+       }, { onConflict: "id" });
+       
+       await new Promise(r => setTimeout(r, 200));
     }
 
     const { error: dbError } = await supabase
