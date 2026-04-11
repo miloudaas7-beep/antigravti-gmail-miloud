@@ -39,18 +39,12 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     return ns?.[key] || (dictionaries["en"][namespace] as any)?.[key] || key;
   };
 
-  if (!mounted) {
-      // Prevent hydration mismatch by rendering a hidden layout or just returning children with default context
-      return (
-          <LanguageContext.Provider value={{ lang: "en", setLang, t }}>
-            {children}
-          </LanguageContext.Provider>
-      );
-  }
-
+  // Prevent hydration mismatch by simply returning the exact same DOM tree
+  // on the server and initial client render. The 'dir' will update once mounted
+  // if Arabic is selected from localStorage.
   return (
-    <LanguageContext.Provider value={{ lang, setLang, t }}>
-      <div dir={lang === "ar" ? "rtl" : "ltr"}>
+    <LanguageContext.Provider value={{ lang: mounted ? lang : "en", setLang, t }}>
+      <div dir={mounted && lang === "ar" ? "rtl" : "ltr"} style={{ display: "contents" }}>
         {children}
       </div>
     </LanguageContext.Provider>
