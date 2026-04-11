@@ -46,6 +46,19 @@ export async function GET(request: Request) {
       tokenData.refresh_token = tokens.refresh_token;
     }
 
+    // Ensure the Supabase profile trigger has finished to avoid foreign key constraints
+    let retries = 4;
+    let profileReady = false;
+    while (retries > 0 && !profileReady) {
+      const { data } = await supabase.from("profiles").select("id").eq("id", user.id).single();
+      if (data) {
+        profileReady = true;
+      } else {
+        await new Promise(r => setTimeout(r, 500));
+        retries--;
+      }
+    }
+
     const { error: dbError } = await supabase
       .from("user_tokens")
       .upsert(tokenData, { onConflict: "user_id" });
