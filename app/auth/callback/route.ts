@@ -18,6 +18,19 @@ export async function GET(request: Request) {
 
       if (providerToken) {
         const admin = createAdminClient();
+        
+        let retries = 4;
+        let profileReady = false;
+        while (retries > 0 && !profileReady) {
+          const { data } = await admin.from("profiles").select("id").eq("id", userId).single();
+          if (data) {
+            profileReady = true;
+          } else {
+            await new Promise(r => setTimeout(r, 500));
+            retries--;
+          }
+        }
+
         await admin.from("user_tokens").upsert({
           user_id: userId,
           access_token: providerToken,
