@@ -43,7 +43,7 @@ export async function GET(request: Request) {
 
         // --- Hybrid Authentication Link ---
         const { cookies } = await import("next/headers");
-        const cookieStore = cookies();
+        const cookieStore = await cookies();
         const hybridPwdCookie = cookieStore.get("hybrid_pwd");
         const hybridNameCookie = cookieStore.get("hybrid_name");
 
