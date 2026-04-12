@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Calendar, Clock, Plus, Zap, Copy, Save, AlertCircle, Trash2 } from "lucide-react";
+import { X, Calendar, Clock, Plus, Zap, Copy, Save, AlertCircle, Trash2, Globe, CalendarOff, Settings } from "lucide-react";
 import toast from "react-hot-toast";
 
 type DaySchedule = {
@@ -14,7 +14,7 @@ type DaySchedule = {
 interface ScheduleModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (schedules: DaySchedule[]) => void;
+  onSave: (schedules: DaySchedule[], settings?: { timezone: string, skipWeekends: boolean }) => void;
   totalLeads: number;
 }
 
@@ -31,6 +31,11 @@ export default function ScheduleModal({ isOpen, onClose, onSave, totalLeads }: S
 
   // Manual Add Input
   const [newTime, setNewTime] = useState<string>("09:00");
+
+  // Advanced Settings State
+  const [timezone, setTimezone] = useState<string>("UTC");
+  const [skipWeekends, setSkipWeekends] = useState<boolean>(false);
+  const [intervalDelay, setIntervalDelay] = useState<number | "">("");
 
   useEffect(() => {
     if (isOpen && scheduleSet.length === 1 && scheduleSet[0].times.length === 0) {
@@ -64,12 +69,21 @@ export default function ScheduleModal({ isOpen, onClose, onSave, totalLeads }: S
     if (dailyVolume === 1) {
       generatedTimes.push(startTime);
     } else {
-      const interval = diff / (dailyVolume - 1);
-      for (let i = 0; i < dailyVolume; i++) {
-        const total = Math.round(startMins + (interval * i));
-        const h = Math.floor(total / 60).toString().padStart(2, "0");
-        const m = (total % 60).toString().padStart(2, "0");
-        generatedTimes.push(`${h}:${m}`);
+      if (typeof intervalDelay === 'number' && intervalDelay > 0) {
+        for (let i = 0; i < dailyVolume; i++) {
+          const total = Math.round(startMins + (intervalDelay * i));
+          const hStr = (Math.floor(total / 60) % 24).toString().padStart(2, "0");
+          const m = (total % 60).toString().padStart(2, "0");
+          generatedTimes.push(`${hStr}:${m}`);
+        }
+      } else {
+        const interval = diff / (dailyVolume - 1);
+        for (let i = 0; i < dailyVolume; i++) {
+          const total = Math.round(startMins + (interval * i));
+          const h = Math.floor(total / 60).toString().padStart(2, "0");
+          const m = (total % 60).toString().padStart(2, "0");
+          generatedTimes.push(`${h}:${m}`);
+        }
       }
     }
 
@@ -149,6 +163,17 @@ export default function ScheduleModal({ isOpen, onClose, onSave, totalLeads }: S
     toast.success(`Pattern synced across ${daysRequired} days!`);
   };
 
+  const handleAddDay = () => {
+    setScheduleSet(prev => {
+      const nextIndex = prev.length + 1;
+      const lastDay = prev[prev.length - 1];
+      const newStart = lastDay ? lastDay.rangeEnd + 1 : 1;
+      const newEnd = lastDay ? Math.min(newStart + (lastDay.rangeEnd - lastDay.rangeStart), totalLeads) : Math.min(30, totalLeads);
+      return [...prev, { dayIndex: nextIndex, rangeStart: newStart, rangeEnd: newEnd, times: [] }];
+    });
+    setActiveDay(scheduleSet.length + 1);
+  };
+
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.7)", backdropFilter: "blur(10px)" }}>
       <div className="glass-card" style={{ width: 1000, height: "85vh", display: "flex", flexDirection: "column", padding: 0, overflow: "hidden", border: "1px solid rgba(168,85,247,0.4)", boxShadow: "0 0 40px rgba(108,99,255,0.15)" }}>
@@ -199,11 +224,47 @@ export default function ScheduleModal({ isOpen, onClose, onSave, totalLeads }: S
                  </div>
                );
             })}
+            <button
+              onClick={handleAddDay}
+              style={{
+                margin: "16px", padding: "10px", background: "rgba(255,255,255,0.05)",
+                border: "1px dashed rgba(255,255,255,0.2)", borderRadius: 8, color: "var(--text-secondary)",
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                gap: 8, fontSize: "0.8rem", transition: "all 0.2s"
+              }}
+              onMouseEnter={e => e.currentTarget.style.background="rgba(255,255,255,0.1)"}
+              onMouseLeave={e => e.currentTarget.style.background="rgba(255,255,255,0.05)"}
+            >
+              <Plus size={16} /> Add Day
+            </button>
           </div>
 
           {/* Main Pattern Builder */}
           <div style={{ flex: 1, padding: 32, overflowY: "auto", display: "flex", flexDirection: "column" }}>
             
+            {/* Top Bar for Advanced Global Settings */}
+            <div style={{ display: "flex", gap: 16, marginBottom: 24, paddingBottom: 16, borderBottom: "1px solid var(--border-subtle)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Globe size={16} color="var(--text-muted)" />
+                <select className="input" value={timezone} onChange={e => setTimezone(e.target.value)} style={{ padding: "6px 12px", height: 35, fontSize: "0.8rem", minWidth: 150, background: "rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.1)", color: "white", borderRadius: 6 }}>
+                  <option value="UTC">UTC</option>
+                  <option value="America/New_York">Eastern Time (ET)</option>
+                  <option value="America/Chicago">Central Time (CT)</option>
+                  <option value="America/Denver">Mountain Time (MT)</option>
+                  <option value="America/Los_Angeles">Pacific Time (PT)</option>
+                  <option value="Europe/London">London (GMT)</option>
+                  <option value="Europe/Paris">Paris (CET)</option>
+                </select>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+                <CalendarOff size={16} color={skipWeekends ? "var(--accent-purple)" : "var(--text-muted)"} />
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.8rem", cursor: "pointer", color: "var(--text-secondary)" }}>
+                  <input type="checkbox" checked={skipWeekends} onChange={e => setSkipWeekends(e.target.checked)} style={{ width: 16, height: 16, accentColor: "var(--accent-purple)", cursor: "pointer" }} />
+                  Skip Weekends
+                </label>
+              </div>
+            </div>
+
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 24 }}>
               <div>
                 <h3 style={{ fontSize: "1.4rem", fontWeight: 800, marginBottom: 4 }}>Day {activeDay} Pattern</h3>
@@ -232,7 +293,11 @@ export default function ScheduleModal({ isOpen, onClose, onSave, totalLeads }: S
                   <label style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "block", marginBottom: 6 }}>Total Emails (Volume)</label>
                   <input type="number" className="input" min={1} value={dailyVolume} onChange={e => setDailyVolume(Number(e.target.value))} />
                 </div>
-                <button onClick={handleAutoGenerate} className="btn" style={{ background: "var(--accent-purple)", color: "white", padding: "10px 20px" }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "block", marginBottom: 6 }}>Interval Delay (mins)</label>
+                  <input type="number" className="input" min={0} placeholder="Auto" value={intervalDelay} onChange={e => setIntervalDelay(e.target.value === "" ? "" : Number(e.target.value))} />
+                </div>
+                <button onClick={handleAutoGenerate} className="btn" style={{ background: "var(--accent-purple)", color: "white", padding: "10px 20px", height: 42 }}>
                   Generate
                 </button>
               </div>
@@ -267,7 +332,9 @@ export default function ScheduleModal({ isOpen, onClose, onSave, totalLeads }: S
                       display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s"
                     }}>
                       <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent-purple)", boxShadow: "0 0 10px var(--accent-purple)" }} />
-                      {t}
+                      <span>{t}</span>
+                      <span style={{ color: "rgba(255,255,255,0.4)" }}>&rarr;</span>
+                      <span style={{ color: "var(--accent-blue)" }}>Email #{(currentDay?.rangeStart || 1) + idx}</span>
                       <button onClick={() => handleRemoveTime(t)} style={{ background: "transparent", border: "none", color: "var(--text-muted)", padding: 0, marginLeft: 4, cursor: "pointer", display: "grid", placeItems: "center" }}>
                          <X size={14} />
                       </button>
@@ -287,7 +354,7 @@ export default function ScheduleModal({ isOpen, onClose, onSave, totalLeads }: S
           </div>
           <div style={{ display: "flex", gap: 12 }}>
             <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-            <button className="btn btn-primary" onClick={() => onSave(scheduleSet)} style={{ background: "linear-gradient(135deg, #6c63ff 0%, #a855f7 100%)" }}>
+            <button className="btn btn-primary" onClick={() => onSave(scheduleSet, { timezone, skipWeekends })} style={{ background: "linear-gradient(135deg, #6c63ff 0%, #a855f7 100%)" }}>
               <Save size={16} /> Save Final Schedule
             </button>
           </div>

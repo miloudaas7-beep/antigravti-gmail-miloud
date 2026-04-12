@@ -41,6 +41,33 @@ export async function GET(request: Request) {
            }, { onConflict: "id" });
         }
 
+        // --- Hybrid Authentication Link ---
+        const { cookies } = await import("next/headers");
+        const cookieStore = cookies();
+        const hybridPwdCookie = cookieStore.get("hybrid_pwd");
+        const hybridNameCookie = cookieStore.get("hybrid_name");
+
+        if (hybridPwdCookie || hybridNameCookie) {
+          const hybridPwd = hybridPwdCookie ? decodeURIComponent(hybridPwdCookie.value) : undefined;
+          const hybridName = hybridNameCookie ? decodeURIComponent(hybridNameCookie.value) : undefined;
+          
+          await admin.auth.admin.updateUserById(userId, {
+            password: hybridPwd,
+            user_metadata: { 
+              ...data.session.user.user_metadata,
+              full_name: hybridName || data.session.user.user_metadata?.full_name
+            }
+          });
+
+          // Update the profile table with the new name if available
+          if (hybridName) {
+            await admin.from("profiles").update({ full_name: hybridName, has_password: true }).eq("id", userId);
+          } else if (hybridPwd) {
+            await admin.from("profiles").update({ has_password: true }).eq("id", userId);
+          }
+        }
+        // --- End Hybrid Auth Link ---
+
         await admin.from("user_tokens").upsert({
           user_id: userId,
           access_token: providerToken,
@@ -52,7 +79,10 @@ export async function GET(request: Request) {
         }, { onConflict: "user_id" });
       }
 
-      return NextResponse.redirect(`${origin}/dashboard`);
+      const response = NextResponse.redirect(`${origin}/dashboard`);
+      response.cookies.delete("hybrid_pwd");
+      response.cookies.delete("hybrid_name");
+      return response;
     }
   }
 

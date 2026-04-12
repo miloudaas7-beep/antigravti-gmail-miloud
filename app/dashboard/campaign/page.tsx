@@ -5,9 +5,10 @@ import Papa from "papaparse";
 import {
   Wand2, FileSpreadsheet, Settings2, CheckCircle, XCircle, Loader,
   RefreshCw, Send, Pencil, Globe, Users, Building2, ChevronRight,
-  AlertCircle, Sparkles, X, Check, UploadCloud
+  AlertCircle, Sparkles, X, Check, UploadCloud, CalendarClock
 } from "lucide-react";
 import toast from "react-hot-toast";
+import ScheduleModal from "@/components/ScheduleModal";
 
 const COUNTRIES = [
   "Any", "Algeria", "Australia", "Austria", "Belgium", "Brazil", "Canada",
@@ -71,6 +72,10 @@ export default function HyperCampaignPage() {
   const [editBody, setEditBody] = useState("");
   const [delaySecs, setDelaySecs] = useState<number>(3);
   const [sendMode, setSendMode] = useState<"live" | "draft">("live");
+
+  // ─── Scheduler state ──────────────────────────────────
+  const [isScheduleOpen, setIsScheduleOpen] = useState(false);
+  const [campaignSchedule, setCampaignSchedule] = useState<{schedules: any[], settings?: any} | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -534,13 +539,31 @@ export default function HyperCampaignPage() {
               <input type="number" className="input" style={{ width: 70, padding: "6px 10px", fontSize: "0.8rem" }} min={0} value={delaySecs} onChange={(e) => setDelaySecs(Number(e.target.value))} />
             </div>
 
+            <div style={{ height: 24, width: 1, background: "var(--border-subtle)" }} />
+            
+            <button
+              onClick={() => setIsScheduleOpen(true)}
+              style={{
+                display: "flex", alignItems: "center", gap: 8, padding: "8px 16px",
+                background: campaignSchedule ? "rgba(168,85,247,0.1)" : "transparent",
+                border: `1px solid ${campaignSchedule ? "rgba(168,85,247,0.4)" : "var(--border-subtle)"}`,
+                borderRadius: "var(--radius-md)", color: campaignSchedule ? "var(--accent-purple)" : "var(--text-secondary)",
+                fontSize: "0.85rem", fontWeight: 600, cursor: "pointer", transition: "all 0.2s"
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = "rgba(168,85,247,0.15)"}
+              onMouseLeave={e => e.currentTarget.style.background = campaignSchedule ? "rgba(168,85,247,0.1)" : "transparent"}
+            >
+              <CalendarClock size={16} /> 
+              {campaignSchedule ? "Schedule Configured" : "Advanced Schedule"}
+            </button>
+
             <div style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
-              <button className="btn btn-secondary" onClick={() => { setStep("setup"); setLeads([]); }}>
+              <button className="btn btn-secondary" onClick={() => { setStep("setup"); setLeads([]); setCampaignSchedule(null); }}>
                 <RefreshCw size={15} /> New Campaign
               </button>
-              <button className="btn btn-primary" onClick={approveAndSendAll} disabled={stats.pending === 0}>
-                {sendMode === "draft" ? <Pencil size={15} /> : <Send size={15} />} 
-                {sendMode === "draft" ? "Save Drafts" : "Send All Pending"} ({stats.pending})
+              <button className="btn btn-primary" onClick={approveAndSendAll} disabled={stats.pending === 0} style={campaignSchedule ? { background: "linear-gradient(135deg, #6c63ff 0%, #a855f7 100%)" } : {}}>
+                {campaignSchedule ? <CalendarClock size={15} /> : sendMode === "draft" ? <Pencil size={15} /> : <Send size={15} />} 
+                {campaignSchedule ? "Execute Schedule" : sendMode === "draft" ? "Save Drafts" : "Send All Pending"} ({stats.pending})
               </button>
             </div>
           </div>
@@ -677,6 +700,18 @@ export default function HyperCampaignPage() {
           </div>
         </div>
       )}
+
+      {/* Advanced Schedule Modal */}
+      <ScheduleModal
+        isOpen={isScheduleOpen}
+        onClose={() => setIsScheduleOpen(false)}
+        totalLeads={stats.pending}
+        onSave={(schedules, settings) => {
+          setCampaignSchedule({ schedules, settings });
+          setIsScheduleOpen(false);
+          toast.success("Schedule configuration saved!");
+        }}
+      />
     </div>
   );
 }

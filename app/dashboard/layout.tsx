@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { LanguageProvider } from "@/lib/i18n/LanguageContext";
 import { SidebarProvider } from "@/lib/SidebarContext";
+import { MultiAccountProvider } from "@/lib/MultiAccountContext";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -20,15 +21,17 @@ export default async function DashboardLayout({ children }: { children: React.Re
   return (
     <LanguageProvider>
       <SidebarProvider>
-        <div className="dashboard-wrapper">
-          <Sidebar />
-          <div className="dashboard-main">
-            <TopNav />
-            <main style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "flex-start", padding: "28px" }} className="main-content">
-              {children}
-            </main>
+        <MultiAccountProvider>
+          <div className="dashboard-wrapper">
+            <Sidebar />
+            <div className="dashboard-main">
+              <TopNav />
+              <main style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "flex-start", padding: "28px" }} className="main-content">
+                {children}
+              </main>
+            </div>
           </div>
-        </div>
+        </MultiAccountProvider>
       </SidebarProvider>
     </LanguageProvider>
   );
