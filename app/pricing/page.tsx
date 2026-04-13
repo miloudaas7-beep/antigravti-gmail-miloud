@@ -5,6 +5,7 @@ import Link from "next/link";
 import TopNav from "@/components/TopNav";
 import { LanguageProvider } from "@/lib/i18n/LanguageContext";
 import { SidebarProvider } from "@/lib/SidebarContext";
+import { MultiAccountProvider } from "@/lib/MultiAccountContext";
 
 const TIERS = [
   {
@@ -41,9 +42,10 @@ export default function PricingPage() {
   return (
     <LanguageProvider>
       <SidebarProvider>
-        <div className="layout-app">
-          <TopNav />
-          <div style={{ flex: 1, padding: "80px 20px", display: "flex", flexDirection: "column", alignItems: "center" }}>
+        <MultiAccountProvider>
+          <div className="layout-app">
+            <TopNav />
+            <div style={{ flex: 1, padding: "80px 20px", display: "flex", flexDirection: "column", alignItems: "center" }}>
         
         <div style={{ textAlign: "center", maxWidth: 700, marginBottom: 60 }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 16px", borderRadius: 100, background: "rgba(108,99,255,0.1)", color: "var(--accent-purple)", fontWeight: 700, fontSize: "0.85rem", marginBottom: 20 }}>
@@ -112,6 +114,7 @@ export default function PricingPage() {
 
       </div>
     </div>
+    </MultiAccountProvider>
     </SidebarProvider>
     </LanguageProvider>
   );
