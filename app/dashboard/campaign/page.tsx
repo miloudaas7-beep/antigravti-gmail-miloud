@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import Papa from "papaparse";
 import {
   Wand2, FileSpreadsheet, Settings2, CheckCircle, XCircle, Loader,
@@ -79,6 +79,26 @@ export default function HyperCampaignPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ─── Local Storage Persistence for Prompts ──────────────
+  useEffect(() => {
+    const savedStartup = localStorage.getItem("smartscout_startupRules");
+    const savedEnterprise = localStorage.getItem("smartscout_enterpriseRules");
+    const savedBase = localStorage.getItem("smartscout_baseEmailTemplate");
+    const savedCustom = localStorage.getItem("smartscout_customInstructions");
+
+    if (savedStartup) setStartupRules(savedStartup);
+    if (savedEnterprise) setEnterpriseRules(savedEnterprise);
+    if (savedBase) setBaseEmailTemplate(savedBase);
+    if (savedCustom) setCustomInstructions(savedCustom);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("smartscout_startupRules", startupRules);
+    localStorage.setItem("smartscout_enterpriseRules", enterpriseRules);
+    localStorage.setItem("smartscout_baseEmailTemplate", baseEmailTemplate);
+    localStorage.setItem("smartscout_customInstructions", customInstructions);
+  }, [startupRules, enterpriseRules, baseEmailTemplate, customInstructions]);
+
   // ─── Source handlers ──────────────────────────────────
   const handleFetchSheet = async () => {
     if (!sheetUrl.trim()) return toast.error("Please paste your Google Sheet URL.");
@@ -128,20 +148,23 @@ export default function HyperCampaignPage() {
     setCompanyColumn(newHeaders.find((h) => /company|business|org|name/i.test(h)) ?? newHeaders[0]);
   };
 
-  // ─── Generate campaign ────────────────────────────────
-  const handleGenerate = async () => {
+  // ─── Generate Preview ────────────────────────────────
+  const handleGeneratePreview = async () => {
     if (rows.length === 0) return toast.error("No contacts loaded.");
     if (!emailColumn) return toast.error("Please select the email column.");
 
     setIsGenerating(true);
     setStep("generating");
 
+    // Only take first 2 rows for preview
+    const previewRows = rows.slice(0, 2);
+
     try {
       const res = await fetch("/api/campaign/hyper-generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          rows,
+          rows: previewRows,
           emailColumn,
           companyColumn,
           targetCountry: targetCountry === "Any" ? "" : targetCountry,
@@ -153,18 +176,52 @@ export default function HyperCampaignPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error || "Generation failed.");
+        toast.error(data.error || "Preview Generation failed.");
         setStep("setup");
         return;
       }
       setLeads(data.leads);
       setStep("review");
-      toast.success(`Generated ${data.leads.filter((l: Lead) => l.status === "pending").length} emails ready for review!`);
+      toast.success(`Generated preview for ${data.leads.length} emails. Review before scheduling!`, { duration: 5000 });
     } catch (err: any) {
       toast.error(err.message || "Network error");
       setStep("setup");
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  // ─── Schedule Campaign ────────────────────────────────
+  const scheduleCampaign = async () => {
+    if (!campaignSchedule) return toast.error("No schedule set.");
+    if (rows.length === 0) return toast.error("No contacts loaded.");
+
+    toast.loading(`Saving Advanced Schedule for ${rows.length} contacts...`, { id: "sched" });
+    try {
+      const combinedPrompt = `Base Template:\n${baseEmailTemplate}\n\nCustom Instructions:\n${customInstructions}\n\nStartup Rules:\n${startupRules}\n\nEnterprise Rules:\n${enterpriseRules}\n\nTarget Country: ${targetCountry}`;
+      
+      const payload = {
+        rows,
+        prompt: combinedPrompt,
+        emailColumn,
+        nameColumn: companyColumn,
+        schedules: campaignSchedule.schedules
+      };
+
+      const res = await fetch("/api/campaign/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to schedule");
+      
+      toast.success(`Successfully scheduled campaign for ${rows.length} contacts! The system will generate and send them automatically.`, { id: "sched", duration: 8000 });
+      setCampaignSchedule(null);
+      setLeads([]);
+      setStep("setup");
+    } catch(e: any) {
+      toast.error("Error scheduling: " + e.message, { id: "sched" });
     }
   };
 
@@ -471,10 +528,10 @@ export default function HyperCampaignPage() {
               <button
                 className="btn btn-primary"
                 style={{ padding: "12px 28px", fontSize: "0.95rem", gap: 8 }}
-                onClick={handleGenerate}
+                onClick={handleGeneratePreview}
                 disabled={rows.length === 0 || isGenerating}
               >
-                {rows.length === 0 ? "Load Contacts ⬆️" : <><Sparkles size={16} /> Generate Campaign</>}
+                {rows.length === 0 ? "Load Contacts ⬆️" : <><Sparkles size={16} /> Generate Preview (2 emails)</>}
               </button>
             </div>
           </div>
@@ -561,17 +618,24 @@ export default function HyperCampaignPage() {
               <button className="btn btn-secondary" onClick={() => { setStep("setup"); setLeads([]); setCampaignSchedule(null); }}>
                 <RefreshCw size={15} /> New Campaign
               </button>
-              <button className="btn btn-primary" onClick={approveAndSendAll} disabled={stats.pending === 0} style={campaignSchedule ? { background: "linear-gradient(135deg, #6c63ff 0%, #a855f7 100%)" } : {}}>
-                {campaignSchedule ? <CalendarClock size={15} /> : sendMode === "draft" ? <Pencil size={15} /> : <Send size={15} />} 
-                {campaignSchedule ? "Execute Schedule" : sendMode === "draft" ? "Save Drafts" : "Send All Pending"} ({stats.pending})
-              </button>
+
+              {campaignSchedule ? (
+                <button className="btn btn-primary" onClick={scheduleCampaign} style={{ background: "linear-gradient(135deg, #6c63ff 0%, #a855f7 100%)" }}>
+                  <CalendarClock size={15} /> Schedule All {rows.length} Contacts
+                </button>
+              ) : (
+                <button className="btn btn-primary" onClick={approveAndSendAll} disabled={stats.pending === 0}>
+                  {sendMode === "draft" ? <Pencil size={15} /> : <Send size={15} />} 
+                  {sendMode === "draft" ? "Save Drafts" : "Send Pending Previews"} ({stats.pending})
+                </button>
+              )}
             </div>
           </div>
 
           {/* Review table */}
           <div className="glass-card" style={{ padding: 0, overflow: "hidden" }}>
             <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border-subtle)", fontWeight: 700, fontSize: "0.9rem", display: "flex", alignItems: "center", gap: 8 }}>
-              📋 Campaign Review Board
+              📋 Preview Board (Showing {leads.length} of {rows.length} contacts)
             </div>
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.83rem" }}>
@@ -705,7 +769,7 @@ export default function HyperCampaignPage() {
       <ScheduleModal
         isOpen={isScheduleOpen}
         onClose={() => setIsScheduleOpen(false)}
-        totalLeads={stats.pending}
+        totalLeads={rows.length}
         onSave={(schedules, settings) => {
           setCampaignSchedule({ schedules, settings });
           setIsScheduleOpen(false);
