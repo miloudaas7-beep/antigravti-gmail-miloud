@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS public.campaign_leads (
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
   icebreaker TEXT,
   status TEXT DEFAULT 'pending', -- 'pending' | 'sent' | 'failed'
+  scheduled_at TIMESTAMPTZ,
   sent_at TIMESTAMPTZ,
   error_message TEXT
 );

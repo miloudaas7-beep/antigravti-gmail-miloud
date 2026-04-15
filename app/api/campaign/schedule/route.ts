@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { fromZonedTime } from "date-fns-tz";
 
 export async function POST(request: Request) {
   try {
-    const { rows, prompt, emailColumn, nameColumn, schedules } = await request.json();
+    const { rows, prompt, emailColumn, nameColumn, schedules, settings } = await request.json();
 
     if (!rows || rows.length === 0 || !schedules || schedules.length === 0) {
       return NextResponse.json({ error: "Missing rows or schedule data" }, { status: 400 });
@@ -20,8 +21,8 @@ export async function POST(request: Request) {
     const { data: campaign, error: campError } = await supabase.from("campaigns").insert({
       user_id: user.id,
       name: `Auto Campaign - ${new Date().toLocaleDateString()}`,
-      subject: "AI Outreach", // Could be dynamic later
-      template: prompt, // Saving the prompt so the cron job knows what to ask the AI
+      subject: "AI Outreach",
+      template: prompt,
       status: "scheduled",
       total_leads: rows.length,
     }).select("id").single();
@@ -30,8 +31,7 @@ export async function POST(request: Request) {
       throw new Error(`Failed to create campaign: ${campError?.message}`);
     }
 
-    // 2. Insert New Leads (if they don't exist, though we just insert to be safe for this bulk list)
-    // We parse them from the CSV.
+    // 2. Insert New Leads
     const newLeads = rows.map((r: any) => ({
       user_id: user.id,
       email: r[emailColumn] || "",
@@ -39,9 +39,6 @@ export async function POST(request: Request) {
       source: "csv_import"
     })).filter((lead: any) => lead.email !== "");
 
-    // Actually, upserting or just inserting. Since they are just raw CSV, let's insert and get their IDs.
-    // Wait, Supabase bulk insert max rows per request limit is around 1000.
-    // To ensure returning IDs, we just insert.
     const { data: insertedLeads, error: leadsError } = await supabase
       .from("leads")
       .insert(newLeads)
@@ -51,20 +48,50 @@ export async function POST(request: Request) {
       throw new Error(`Failed to insert leads: ${leadsError?.message}`);
     }
 
-    // 3. Link them in campaign_leads queue
-    const campaignLeadsData = insertedLeads.map((lead: any) => ({
-      campaign_id: campaign.id,
-      lead_id: lead.id,
-      user_id: user.id,
-      status: "pending"
-    }));
+    // Compute base date in target timezone
+    const tz = settings?.timezone || "UTC";
+    const dateParts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    }).format(new Date());
+
+    const [cYear, cMonth, cDay] = dateParts.split('-').map(Number);
+    const baseDate = new Date(Date.UTC(cYear, cMonth - 1, cDay));
+
+    let globalLeadIndex = 0;
+    const campaignLeadsData = [];
+
+    // 3. Link them & assign scheduled_at
+    for (const s of schedules) {
+      // Calculate target date by adding dayIndex - 1
+      const targetDate = new Date(baseDate);
+      targetDate.setUTCDate(targetDate.getUTCDate() + (s.dayIndex - 1));
+      const targetDateStr = targetDate.toISOString().split('T')[0];
+
+      for (const t of s.times) {
+        if (globalLeadIndex >= insertedLeads.length) break;
+
+        const localTimeStr = `${targetDateStr} ${t}:00`;
+        const scheduledTimeUTC = fromZonedTime(localTimeStr, tz);
+
+        campaignLeadsData.push({
+          campaign_id: campaign.id,
+          lead_id: insertedLeads[globalLeadIndex].id,
+          user_id: user.id,
+          status: "pending",
+          scheduled_at: scheduledTimeUTC.toISOString()
+        });
+
+        globalLeadIndex++;
+      }
+    }
 
     const { error: clError } = await supabase.from("campaign_leads").insert(campaignLeadsData);
     if (clError) {
       throw new Error(`Failed to map campaign leads: ${clError.message}`);
     }
 
-    // 4. Save the Pattern Schedules
+    // 4. Save the Pattern Schedules (Keeping for UI reference, though cron skips it now)
     const scheduleData = schedules.map((s: any) => ({
       campaign_id: campaign.id,
       user_id: user.id,

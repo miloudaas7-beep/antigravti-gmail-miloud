@@ -173,7 +173,7 @@ export default function AIEmailSenderPage() {
   };
 
   // ─── Schedule Campaign ───────────────────────────────────────
-  const handleSaveSchedule = async (schedules: any[]) => {
+  const handleSaveSchedule = async (schedules: any[], settings?: { timezone: string, skipWeekends: boolean }) => {
     if (rows.length === 0) return toast.error("No contacts loaded.");
     if (!prompt.trim()) return toast.error("Please write your email prompt.");
     if (!emailColumn) return toast.error("Please select the Email column.");
@@ -188,7 +188,8 @@ export default function AIEmailSenderPage() {
           prompt,
           emailColumn,
           nameColumn,
-          schedules
+          schedules,
+          settings // <-- Pass the settings object with timezone
         }),
       });
       const data = await res.json();
