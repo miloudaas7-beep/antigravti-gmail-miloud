@@ -1,29 +1,31 @@
--- Migration to add Credit System and Promo Codes
+-- ============================================================
+-- Migration: Add retry tracking + performance index to campaign_leads
+-- Run this in your Supabase SQL Editor
+-- ============================================================
 
--- 1. Add credits_balance to profiles table (if not exists)
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS credits_balance integer DEFAULT 0;
+-- 1. Add error_message column: stores WHY a send failed (e.g. "401 invalid_grant")
+ALTER TABLE public.campaign_leads
+  ADD COLUMN IF NOT EXISTS error_message text;
 
--- 2. Create promo_codes table
-CREATE TABLE IF NOT EXISTS public.promo_codes (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    code text UNIQUE NOT NULL,
-    credit_value integer NOT NULL,
-    is_active boolean DEFAULT true,
-    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
-);
+-- 2. Add retry_count column: cron retries up to 3 times before giving up
+ALTER TABLE public.campaign_leads
+  ADD COLUMN IF NOT EXISTS retry_count integer NOT NULL DEFAULT 0;
 
--- 3. Set up RLS for promo_codes
-ALTER TABLE public.promo_codes ENABLE ROW LEVEL SECURITY;
+-- 3. Add sent_at column: records exact UTC timestamp when the email was delivered
+ALTER TABLE public.campaign_leads
+  ADD COLUMN IF NOT EXISTS sent_at timestamptz;
 
--- Allow reading active promo codes (or all codes, depending on needs)
--- We will rely on Service Role key in the backend to access this table, 
---.so we can leave RLS restrictive for anon/authenticated users.
-CREATE POLICY "Service Role can manage promo codes" ON public.promo_codes
-    USING (true) WITH CHECK (true);
+-- 4. Performance index: makes the cron query (status=pending + scheduled_at <= now)
+--    extremely fast, even with 100,000+ rows in the table.
+--    The WHERE clause turns it into a partial index (only indexes pending rows).
+CREATE INDEX IF NOT EXISTS idx_campaign_leads_cron
+  ON public.campaign_leads(scheduled_at ASC)
+  WHERE status = 'pending';
 
--- Insert some dummy promo codes for testing!
-INSERT INTO public.promo_codes (code, credit_value) VALUES 
-('LAUNCH50', 50),
-('WELCOME100', 100),
-('SECRETMM', 10000)
-ON CONFLICT (code) DO NOTHING;
+-- 5. Verify the columns were added correctly
+SELECT column_name, data_type, column_default
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'campaign_leads'
+  AND column_name IN ('error_message', 'retry_count', 'sent_at')
+ORDER BY column_name;

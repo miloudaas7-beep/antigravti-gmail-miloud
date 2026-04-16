@@ -621,13 +621,22 @@ export default function HyperCampaignPage() {
               </button>
 
               {campaignSchedule ? (
-                <button className="btn btn-primary" onClick={scheduleCampaign} style={{ background: "linear-gradient(135deg, #6c63ff 0%, #a855f7 100%)" }}>
-                  <CalendarClock size={15} /> Schedule All {rows.length} Contacts
-                </button>
+                <>
+                  <div style={{
+                    padding: "10px 16px", background: "rgba(108,99,255,0.08)",
+                    border: "1px solid rgba(108,99,255,0.3)", borderRadius: "var(--radius-md)",
+                    fontSize: "0.78rem", color: "var(--accent-purple)", display: "flex", alignItems: "center", gap: 8,
+                  }}>
+                    ⏰ الجدولة مُفعَّلة — الرسائل ستُبعث تلقائياً في وقتها حتى لو الجهاز مطفي
+                  </div>
+                  <button className="btn btn-primary" onClick={scheduleCampaign} style={{ background: "linear-gradient(135deg, #6c63ff 0%, #a855f7 100%)", whiteSpace: "nowrap" }}>
+                    <CalendarClock size={15} /> حفظ في الجدولة ({rows.length} contact)
+                  </button>
+                </>
               ) : (
                 <button className="btn btn-primary" onClick={approveAndSendAll} disabled={stats.pending === 0}>
-                  {sendMode === "draft" ? <Pencil size={15} /> : <Send size={15} />} 
-                  {sendMode === "draft" ? "Save Drafts" : "Send Pending Previews"} ({stats.pending})
+                  {sendMode === "draft" ? <Pencil size={15} /> : <Send size={15} />}
+                  {sendMode === "draft" ? "حفظ كمسودات" : `إرسال فوري (${stats.pending})`}
                 </button>
               )}
             </div>

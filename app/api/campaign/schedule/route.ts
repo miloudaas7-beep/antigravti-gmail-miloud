@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { fromZonedTime } from "date-fns-tz";
+import { fromZonedTime, toZonedTime } from "date-fns-tz";
+import { startOfDay, addDays } from "date-fns";
 
 export async function POST(request: Request) {
   try {
@@ -48,27 +49,29 @@ export async function POST(request: Request) {
       throw new Error(`Failed to insert leads: ${leadsError?.message}`);
     }
 
-    // Compute base date in target timezone
+    // ── Compute base date (local midnight) in the user's timezone ──
+    // We must NOT use Date.UTC() here, as it collapses the timezone offset.
+    // Instead: get the current moment in the target timezone, snap to midnight,
+    // then convert that local midnight back to a UTC timestamp.
     const tz = settings?.timezone || "UTC";
-    const dateParts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: tz,
-      year: 'numeric', month: '2-digit', day: '2-digit'
-    }).format(new Date());
 
-    const [cYear, cMonth, cDay] = dateParts.split('-').map(Number);
-    const baseDate = new Date(Date.UTC(cYear, cMonth - 1, cDay));
+    // toZonedTime: shifts `now` into the target timezone so we can do date math
+    const nowInTZ = toZonedTime(new Date(), tz);
+    // startOfDay: snap to midnight in that timezone (e.g. 2026-04-17 00:00 +01:00)
+    const localMidnight = startOfDay(nowInTZ);
+    // fromZonedTime: convert that local midnight back to a true UTC Date
+    let baseDate = fromZonedTime(localMidnight, tz);
 
     // Shift baseDate to tomorrow if the first scheduled time has already passed
     if (schedules && schedules.length > 0 && schedules[0].times && schedules[0].times.length > 0) {
       const firstS = schedules[0];
-      const testDate = new Date(baseDate);
-      testDate.setUTCDate(testDate.getUTCDate() + (firstS.dayIndex - 1));
-      const testDateStr = testDate.toISOString().split('T')[0];
-      const testTimeStr = `${testDateStr} ${firstS.times[0]}:00`;
-      const testTimeUTC = fromZonedTime(testTimeStr, tz);
-      
-      if (testTimeUTC <= new Date()) {
-        baseDate.setUTCDate(baseDate.getUTCDate() + 1);
+      const firstTargetDate = addDays(baseDate, firstS.dayIndex - 1);
+      const firstDateStr = firstTargetDate.toISOString().split('T')[0];
+      const firstTimeUTC = fromZonedTime(`${firstDateStr} ${firstS.times[0]}:00`, tz);
+
+      if (firstTimeUTC <= new Date()) {
+        // The first slot has already passed today — start from tomorrow
+        baseDate = addDays(baseDate, 1);
       }
     }
 
