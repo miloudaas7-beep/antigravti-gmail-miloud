@@ -21,10 +21,12 @@ export async function GET(request: Request) {
     const now = new Date();
 
     // 2. Fetch pending leads that are scheduled for now or earlier
+    //    IMPORTANT: .not(null) prevents leads with no scheduled_at from being sent immediately
     const { data: pendingLeads, error: leadsError } = await admin
       .from("campaign_leads")
       .select("id, campaign_id, user_id, lead:lead_id(id, company_name, email, website, location, niche, phone, address)")
       .eq("status", "pending")
+      .not("scheduled_at", "is", null)
       .lte("scheduled_at", now.toISOString())
       .limit(5);
 

@@ -80,15 +80,21 @@ export async function POST(req: NextRequest) {
   if (!campaign) return new Response(JSON.stringify({ error: "Campaign not found" }), { status: 404 });
 
   // Get pending campaign leads with lead details
+  // IMPORTANT: Only fetch leads where scheduled_at IS NULL (unscheduled) OR scheduled_at is due (in the past).
+  // Leads that have a future scheduled_at belong to the cron system and must NOT be sent manually.
+  const now = new Date().toISOString();
   const { data: campaignLeads } = await admin
     .from("campaign_leads")
-    .select("id, icebreaker, lead:lead_id(id, company_name, email, website, location)")
+    .select("id, scheduled_at, icebreaker, lead:lead_id(id, company_name, email, website, location)")
     .eq("campaign_id", campaignId)
-    .eq("status", "pending");
+    .eq("status", "pending")
+    .or(`scheduled_at.is.null,scheduled_at.lte.${now}`);
 
   const leads = campaignLeads ?? [];
   if (leads.length === 0) {
-    return new Response(JSON.stringify({ error: "No pending leads in this campaign" }), { status: 400 });
+    return new Response(JSON.stringify({ 
+      error: "No sendable leads. Leads with future scheduled times will be sent automatically by the system at their scheduled time." 
+    }), { status: 400 });
   }
 
   // Get user access token
