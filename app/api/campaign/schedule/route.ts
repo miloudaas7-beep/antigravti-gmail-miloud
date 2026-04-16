@@ -58,6 +58,20 @@ export async function POST(request: Request) {
     const [cYear, cMonth, cDay] = dateParts.split('-').map(Number);
     const baseDate = new Date(Date.UTC(cYear, cMonth - 1, cDay));
 
+    // Shift baseDate to tomorrow if the first scheduled time has already passed
+    if (schedules && schedules.length > 0 && schedules[0].times && schedules[0].times.length > 0) {
+      const firstS = schedules[0];
+      const testDate = new Date(baseDate);
+      testDate.setUTCDate(testDate.getUTCDate() + (firstS.dayIndex - 1));
+      const testDateStr = testDate.toISOString().split('T')[0];
+      const testTimeStr = `${testDateStr} ${firstS.times[0]}:00`;
+      const testTimeUTC = fromZonedTime(testTimeStr, tz);
+      
+      if (testTimeUTC <= new Date()) {
+        baseDate.setUTCDate(baseDate.getUTCDate() + 1);
+      }
+    }
+
     let globalLeadIndex = 0;
     const campaignLeadsData = [];
 

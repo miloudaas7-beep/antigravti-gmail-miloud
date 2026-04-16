@@ -205,7 +205,8 @@ export default function HyperCampaignPage() {
         prompt: combinedPrompt,
         emailColumn,
         nameColumn: companyColumn,
-        schedules: campaignSchedule.schedules
+        schedules: campaignSchedule.schedules,
+        settings: campaignSchedule.settings
       };
 
       const res = await fetch("/api/campaign/schedule", {
