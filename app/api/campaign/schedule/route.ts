@@ -74,30 +74,39 @@ export async function POST(request: Request) {
 
     let globalLeadIndex = 0;
     const campaignLeadsData = [];
+    let currentDayOffset = 0;
 
-    // 3. Link them & assign scheduled_at
-    for (const s of schedules) {
-      // Calculate target date by adding dayIndex - 1
-      const targetDate = new Date(baseDate);
-      targetDate.setUTCDate(targetDate.getUTCDate() + (s.dayIndex - 1));
-      const targetDateStr = targetDate.toISOString().split('T')[0];
-
-      for (const t of s.times) {
+    // 3. Link them & assign scheduled_at, automatically wrapping to new days if leads exceed slots
+    while (globalLeadIndex < insertedLeads.length && schedules.length > 0) {
+      for (const s of schedules) {
         if (globalLeadIndex >= insertedLeads.length) break;
 
-        const localTimeStr = `${targetDateStr} ${t}:00`;
-        const scheduledTimeUTC = fromZonedTime(localTimeStr, tz);
+        // Calculate target date by adding dayIndex - 1 + currentDayOffset
+        const targetDate = new Date(baseDate);
+        targetDate.setUTCDate(targetDate.getUTCDate() + (s.dayIndex - 1) + currentDayOffset);
+        const targetDateStr = targetDate.toISOString().split('T')[0];
 
-        campaignLeadsData.push({
-          campaign_id: campaign.id,
-          lead_id: insertedLeads[globalLeadIndex].id,
-          user_id: user.id,
-          status: "pending",
-          scheduled_at: scheduledTimeUTC.toISOString()
-        });
+        for (const t of s.times) {
+          if (globalLeadIndex >= insertedLeads.length) break;
 
-        globalLeadIndex++;
+          const localTimeStr = `${targetDateStr} ${t}:00`;
+          const scheduledTimeUTC = fromZonedTime(localTimeStr, tz);
+
+          campaignLeadsData.push({
+            campaign_id: campaign.id,
+            lead_id: insertedLeads[globalLeadIndex].id,
+            user_id: user.id,
+            status: "pending",
+            scheduled_at: scheduledTimeUTC.toISOString()
+          });
+
+          globalLeadIndex++;
+        }
       }
+      
+      // Advance offset by the maximum dayIndex in the provided schedules
+      const maxDayIndex = schedules.reduce((max: number, s: any) => Math.max(max, s.dayIndex), 1);
+      currentDayOffset += maxDayIndex;
     }
 
     const { error: clError } = await supabase.from("campaign_leads").insert(campaignLeadsData);
