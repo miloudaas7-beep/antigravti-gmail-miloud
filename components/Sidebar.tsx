@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import {
-  LayoutDashboard, Mail, Settings, Zap, LogOut, Sparkles, X
+  LayoutDashboard, Mail, Settings, Zap, LogOut, Sparkles, X, Archive
 } from "lucide-react";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import { useSidebar } from "@/lib/SidebarContext";
@@ -34,6 +34,7 @@ export default function Sidebar() {
       items: [
         { href: "/dashboard/emails", label: t("sidebar", "emailCampaigns"), icon: Mail, id: "nav-emails" },
         { href: "/dashboard/campaign", label: t("sidebar", "hyperCampaign"), icon: Sparkles, id: "nav-campaign" },
+        { href: "/dashboard/archive", label: "Campaign Archive", icon: Archive, id: "nav-archive" },
       ],
     },
     {
