@@ -180,7 +180,7 @@ export default function AIEmailSenderPage() {
 
     setIsScheduling(true);
     try {
-      const res = await fetch("/api/campaign/schedule", {
+      const res = await fetch("/api/trigger-n8n", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

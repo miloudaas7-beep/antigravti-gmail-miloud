@@ -49,7 +49,7 @@ export async function GET() {
       .eq("user_id", user.id)
       .not("scheduled_at", "is", null)
       .or(
-        `status.eq.pending,and(status.eq.sent,sent_at.gte.${sevenDaysAgo.toISOString()}),and(status.eq.failed,created_at.gte.${sevenDaysAgo.toISOString()})`
+        `status.eq.pending,status.eq.generating_in_background,and(status.eq.sent,sent_at.gte.${sevenDaysAgo.toISOString()}),and(status.eq.failed,created_at.gte.${sevenDaysAgo.toISOString()})`
       )
       .order("scheduled_at", { ascending: true })
       .limit(200);

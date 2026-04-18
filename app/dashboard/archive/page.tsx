@@ -12,7 +12,7 @@ import toast from "react-hot-toast";
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface QueueItem {
   id: string;
-  status: "pending" | "sent" | "failed";
+  status: "pending" | "sent" | "failed" | "generating_in_background";
   scheduled_at: string;
   sent_at: string | null;
   error_message: string | null;
@@ -145,12 +145,14 @@ function CountdownTimer({ scheduledAt, serverDelta }: { scheduledAt: string; ser
 }
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
-function StatusBadge({ status }: { status: "pending" | "sent" | "failed" }) {
-  const cfg = {
-    pending: { label: "SCHEDULED", bg: "rgba(108,99,255,0.12)", border: "rgba(108,99,255,0.4)", color: "#6c63ff", dot: true },
-    sent:    { label: "SENT",      bg: "rgba(0,230,118,0.12)",   border: "rgba(0,230,118,0.4)",   color: "#00e676", dot: false },
-    failed:  { label: "FAILED",    bg: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.4)",   color: "#ef4444", dot: false },
-  }[status];
+function StatusBadge({ status }: { status: "pending" | "sent" | "failed" | "generating_in_background" }) {
+  const cfgMap = {
+    pending:                   { label: "SCHEDULED",  bg: "rgba(108,99,255,0.12)", border: "rgba(108,99,255,0.4)", color: "#6c63ff", dot: true,  icon: null },
+    sent:                      { label: "SENT",        bg: "rgba(0,230,118,0.12)",  border: "rgba(0,230,118,0.4)",  color: "#00e676", dot: false, icon: "sent" },
+    failed:                    { label: "FAILED",      bg: "rgba(239,68,68,0.12)",  border: "rgba(239,68,68,0.4)",  color: "#ef4444", dot: false, icon: "failed" },
+    generating_in_background:  { label: "AI WRITING", bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.4)", color: "#f59e0b", dot: false, icon: "ai" },
+  };
+  const cfg = cfgMap[status] ?? cfgMap.pending;
 
   return (
     <span
@@ -181,8 +183,11 @@ function StatusBadge({ status }: { status: "pending" | "sent" | "failed" }) {
           }}
         />
       )}
-      {!cfg.dot && status === "sent" && <CheckCircle2 size={10} />}
-      {!cfg.dot && status === "failed" && <XCircle size={10} />}
+      {cfg.icon === "ai" && (
+        <Loader size={10} style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} />
+      )}
+      {cfg.icon === "sent" && <CheckCircle2 size={10} />}
+      {cfg.icon === "failed" && <XCircle size={10} />}
       {cfg.label}
     </span>
   );
@@ -296,6 +301,31 @@ function QueueCard({ item, serverDelta }: { item: QueueItem; serverDelta: number
       {/* Countdown or sent info */}
       {item.status === "pending" && (
         <CountdownTimer scheduledAt={item.scheduled_at} serverDelta={serverDelta} />
+      )}
+
+      {item.status === "generating_in_background" && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            padding: "14px 18px",
+            background: "rgba(245,158,11,0.07)",
+            border: "1px solid rgba(245,158,11,0.3)",
+            borderRadius: 12,
+            fontSize: "0.85rem",
+            color: "#f59e0b",
+            fontWeight: 600,
+          }}
+        >
+          <Loader size={16} style={{ animation: "spin 1s linear infinite", flexShrink: 0 }} />
+          <div>
+            <div>AI is writing your email...</div>
+            <div style={{ fontSize: "0.72rem", fontWeight: 400, marginTop: 2, color: "rgba(245,158,11,0.75)" }}>
+              n8n will send it at the scheduled time
+            </div>
+          </div>
+        </div>
       )}
 
       {item.status === "sent" && (
@@ -447,11 +477,13 @@ export default function ArchivePage() {
   }, [syncServerTime, fetchQueue, subscribeRealtime, supabase]);
 
   // Derived stats
-  const pending = queue.filter((q) => q.status === "pending");
+  const pending = queue.filter((q) => q.status === "pending" || q.status === "generating_in_background");
   const sent = queue.filter((q) => q.status === "sent");
   const failed = queue.filter((q) => q.status === "failed");
 
-  const filtered = filter === "all" ? queue : queue.filter((q) => q.status === filter);
+  const filtered = filter === "all" ? queue : filter === "pending"
+    ? queue.filter((q) => q.status === "pending" || q.status === "generating_in_background")
+    : queue.filter((q) => q.status === filter);
 
   // Sort: pending by scheduled_at asc, sent/failed after
   const sorted = [...filtered].sort((a, b) => {
@@ -746,9 +778,9 @@ export default function ArchivePage() {
         >
           <Clock size={13} color="#6c63ff" />
           <span>
-            <strong style={{ color: "#6c63ff" }}>{pending.length} email{pending.length !== 1 ? "s" : ""}</strong> waiting to be sent.
-            The Vercel Cron job processes them every minute — no action needed on your part.
-            The cards will automatically update when sent.
+            <strong style={{ color: "#6c63ff" }}>{pending.length} email{pending.length !== 1 ? "s" : ""}</strong> queued and awaiting dispatch.
+            n8n is orchestrating the timing and AI generation — no action needed on your part.
+            Cards will automatically update when emails are sent.
           </span>
         </div>
       )}
