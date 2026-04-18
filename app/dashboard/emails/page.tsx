@@ -3,23 +3,14 @@
 import { useState, useRef } from "react";
 import Papa from "papaparse";
 import {
-  UploadCloud, Play, Settings2, Wand2, Mail, Clock,
-  Link2, FileSpreadsheet, ChevronRight, Send, Eye,
-  CheckCircle, XCircle, Loader, RefreshCw, AlertCircle, Calendar
+  UploadCloud, Settings2, Wand2, Mail, Clock,
+  Link2, FileSpreadsheet, ChevronRight, Send,
+  CheckCircle, Loader, RefreshCw, AlertCircle, Calendar, Zap
 } from "lucide-react";
 import toast from "react-hot-toast";
 import ScheduleModal from "@/components/ScheduleModal";
 
-type RowResult = {
-  email: string;
-  name: string;
-  subject: string;
-  status: "sent" | "preview" | "failed";
-  preview: string;
-  error?: string;
-};
-
-type Step = "source" | "template" | "config" | "results";
+type Step = "source" | "template" | "config";
 
 export default function AIEmailSenderPage() {
   // Step navigation
@@ -39,22 +30,14 @@ export default function AIEmailSenderPage() {
   const [emailColumn, setEmailColumn] = useState("");
   const [nameColumn, setNameColumn] = useState("");
 
-  // Template
-  const [prompt, setPrompt] = useState("Write a professional outreach email introducing our services to {{Company Name}}. Keep it under 150 words and end with a clear call to action.");
-
-  // Config
-  const [dailyLimit, setDailyLimit] = useState(30);
-  const [delaySecs, setDelaySecs] = useState(10);
-
-  // Results
-  const [isRunning, setIsRunning] = useState(false);
-  const [results, setResults] = useState<RowResult[]>([]);
-  const [summary, setSummary] = useState<any>(null);
-  const [selectedResult, setSelectedResult] = useState<RowResult | null>(null);
+  // Instructions for n8n
+  const [prompt, setPrompt] = useState("Write a professional outreach email introducing our services to {{Company Name}}. Keep it under 150 words, use a friendly tone, and end with a clear call to action.");
 
   // Scheduling
   const [isScheduleOpen, setIsScheduleOpen] = useState(false);
   const [isScheduling, setIsScheduling] = useState(false);
+  const [dispatched, setDispatched] = useState(false);
+  const [dispatchedCampaignId, setDispatchedCampaignId] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -80,7 +63,6 @@ export default function AIEmailSenderPage() {
       setRows(data.rows);
       setHeaders(data.headers);
       setSheetTitle(data.spreadsheetTitle);
-      // Auto-detect email and name columns
       const emailCol = data.headers.find((h: string) => /email/i.test(h)) ?? data.headers[0];
       const nameCol = data.headers.find((h: string) => /name|company/i.test(h)) ?? data.headers[0];
       setEmailColumn(emailCol);
@@ -121,61 +103,10 @@ export default function AIEmailSenderPage() {
     });
   };
 
-  // ─── Run Campaign ────────────────────────────────────────────
-  const runCampaign = async (actualSend: boolean) => {
+  // ─── Dispatch to n8n (immediate or scheduled) ────────────────
+  const dispatchToN8n = async (schedules?: any[], settings?: { timezone: string; skipWeekends: boolean }) => {
     if (rows.length === 0) return toast.error("No contacts loaded.");
-    if (!prompt.trim()) return toast.error("Please write your email prompt.");
-    if (!emailColumn) return toast.error("Please select the Email column.");
-
-    setIsRunning(true);
-    setResults([]);
-    setSummary(null);
-    setStep("results");
-
-    try {
-      const res = await fetch("/api/campaign/generate-and-send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rows: rows.slice(0, dailyLimit),
-          prompt,
-          emailColumn,
-          nameColumn,
-          dailyLimit,
-          delaySecs,
-          actualSend,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        if (data.needsAuth) {
-          toast.error("Gmail not connected. Go to Settings to connect!", { duration: 6000 });
-          setStep("config");
-        } else {
-          toast.error(data.error || "Campaign failed.");
-          setStep("config");
-        }
-        return;
-      }
-      setResults(data.results);
-      setSummary(data.summary);
-      if (actualSend) {
-        toast.success(`Campaign complete! ${data.summary.sent} emails sent.`);
-      } else {
-        toast.success("Preview generated for all contacts!");
-      }
-    } catch (err: any) {
-      toast.error(err.message || "Network error");
-      setStep("config");
-    } finally {
-      setIsRunning(false);
-    }
-  };
-
-  // ─── Schedule Campaign ───────────────────────────────────────
-  const handleSaveSchedule = async (schedules: any[], settings?: { timezone: string, skipWeekends: boolean }) => {
-    if (rows.length === 0) return toast.error("No contacts loaded.");
-    if (!prompt.trim()) return toast.error("Please write your email prompt.");
+    if (!prompt.trim()) return toast.error("Please write your instructions for the AI.");
     if (!emailColumn) return toast.error("Please select the Email column.");
 
     setIsScheduling(true);
@@ -188,21 +119,23 @@ export default function AIEmailSenderPage() {
           prompt,
           emailColumn,
           nameColumn,
-          schedules,
-          settings // <-- Pass the settings object with timezone
+          schedules: schedules ?? [],
+          settings,
         }),
       });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error || "Failed to save schedule.");
+        toast.error(data.error || "Failed to send to n8n.");
         return;
       }
-      toast.success("Campaign scheduled successfully!");
+      setDispatchedCampaignId(data.campaignId ?? null);
+      setDispatched(true);
       setIsScheduleOpen(false);
-      
-      // Update UI to show Success State (or redirect)
-      setSummary({ total: rows.length, sent: 0, previews: 0, failed: 0 });
-      setStep("results");
+      toast.success(
+        schedules?.length
+          ? `Campaign scheduled! n8n will send ${data.queued ?? rows.length} emails.`
+          : `Campaign dispatched to n8n! Processing ${rows.length} contacts.`
+      );
     } catch (err: any) {
       toast.error(err.message || "Network error");
     } finally {
@@ -210,15 +143,66 @@ export default function AIEmailSenderPage() {
     }
   };
 
+  const handleSendNow = () => dispatchToN8n();
+  const handleSaveSchedule = (schedules: any[], settings?: { timezone: string; skipWeekends: boolean }) =>
+    dispatchToN8n(schedules, settings);
+
   // ─── Stepper UI ──────────────────────────────────────────────
   const STEPS: { id: Step; label: string; icon: any }[] = [
     { id: "source", label: "Import Contacts", icon: FileSpreadsheet },
-    { id: "template", label: "Email Template", icon: Wand2 },
-    { id: "config", label: "Configuration", icon: Settings2 },
-    { id: "results", label: "Results", icon: Send },
+    { id: "template", label: "Instructions", icon: Wand2 },
+    { id: "config", label: "Launch", icon: Send },
   ];
 
   const stepIndex = STEPS.findIndex(s => s.id === step);
+
+  // ─── Success State ───────────────────────────────────────────
+  if (dispatched) {
+    return (
+      <div style={{ width: "100%", maxWidth: 700, margin: "60px auto", display: "flex", flexDirection: "column", alignItems: "center", gap: 24, textAlign: "center" }}>
+        <div style={{ width: 80, height: 80, borderRadius: "50%", background: "rgba(0,230,118,0.15)", border: "2px solid rgba(0,230,118,0.4)", display: "grid", placeItems: "center", animation: "pulse-glow 2s infinite" }}>
+          <CheckCircle size={40} color="var(--accent-green)" />
+        </div>
+        <div>
+          <h2 style={{ fontSize: "1.8rem", fontWeight: 800, marginBottom: 8 }}>Campaign Dispatched! 🚀</h2>
+          <p style={{ color: "var(--text-muted)", fontSize: "0.95rem", maxWidth: 500, lineHeight: 1.7 }}>
+            Your contacts and instructions have been sent to <strong style={{ color: "var(--accent-purple)" }}>n8n</strong>. It will handle personalized email generation and delivery in the background.
+          </p>
+        </div>
+
+        <div className="glass-card" style={{ padding: 24, width: "100%", textAlign: "left" }}>
+          <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 16 }}>Summary</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {[
+              { label: "Contacts sent", value: rows.length },
+              { label: "Data source", value: sheetTitle || "CSV Upload" },
+              { label: "Campaign ID", value: dispatchedCampaignId ? dispatchedCampaignId.slice(0, 8) + "…" : "—" },
+              { label: "Status", value: "Queued in n8n" },
+            ].map(({ label, value }) => (
+              <div key={label} style={{ padding: 14, background: "var(--bg-elevated)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
+                <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>{label}</div>
+                <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>{value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <button
+          className="btn btn-secondary"
+          onClick={() => {
+            setDispatched(false);
+            setDispatchedCampaignId(null);
+            setStep("source");
+            setRows([]);
+            setSheetUrl("");
+            setSheetTitle("");
+          }}
+        >
+          <RefreshCw size={16} /> Start New Campaign
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div style={{ width: "100%", maxWidth: 1100, display: "flex", flexDirection: "column", gap: 28 }}>
@@ -228,7 +212,7 @@ export default function AIEmailSenderPage() {
           <h1 className="page-title" style={{ fontSize: "1.8rem", display: "flex", alignItems: "center", gap: 10 }}>
             <Wand2 size={26} /> AI Email Campaign Builder
           </h1>
-          <p className="page-subtitle">Import contacts → AI personalizes each email → Send via Gmail</p>
+          <p className="page-subtitle">Import contacts → Set instructions → n8n generates &amp; sends personalized emails</p>
         </div>
         {rows.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: "rgba(0,230,118,0.1)", border: "1px solid rgba(0,230,118,0.3)", borderRadius: "var(--radius-md)" }}>
@@ -371,12 +355,12 @@ export default function AIEmailSenderPage() {
         </div>
       )}
 
-      {/* ── STEP 2: Template ── */}
+      {/* ── STEP 2: Instructions ── */}
       {step === "template" && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
           <div className="glass-card" style={{ padding: 28, display: "flex", flexDirection: "column", gap: 20 }}>
             <h3 style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
-              <Wand2 size={18} color="var(--accent-purple)" /> AI Prompt / Email Template
+              <Wand2 size={18} color="var(--accent-purple)" /> Instructions for n8n AI
             </h3>
 
             <div>
@@ -401,24 +385,24 @@ export default function AIEmailSenderPage() {
 
             <div style={{ flex: 1 }}>
               <label style={{ fontSize: "0.78rem", color: "var(--text-muted)", fontWeight: 600, display: "block", marginBottom: 6 }}>
-                Email Prompt (AI will use all contact data to personalize)
+                Email Instructions (tone, key points, how to address each lead)
               </label>
               <textarea
                 className="input"
                 rows={9}
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
-                placeholder="Write a personalized outreach email to {{Company Name}} about our digital marketing services..."
+                placeholder="e.g. Write a friendly, concise outreach email to {{Company Name}}. Focus on our AI analytics solution. Keep under 120 words and end with a meeting invite CTA..."
                 style={{ padding: 12, lineHeight: 1.7, resize: "vertical" }}
               />
             </div>
 
             <div style={{ padding: 12, background: "rgba(108,99,255,0.08)", border: "1px solid rgba(108,99,255,0.2)", borderRadius: "var(--radius-md)", fontSize: "0.78rem", color: "var(--text-muted)" }}>
-              💡 <strong>Tip:</strong> The AI automatically has access to all columns in your sheet ({headers.join(", ")}). Just describe what you want in plain language.
+              💡 <strong>Tip:</strong> n8n's AI will receive all contact columns ({headers.join(", ")}) together with your instructions to craft a personalized email for each recipient.
             </div>
 
             <button className="btn btn-primary" style={{ width: "100%" }} onClick={() => setStep("config")}>
-              Next: Configure Sending <ChevronRight size={16} />
+              Next: Launch Campaign <ChevronRight size={16} />
             </button>
           </div>
 
@@ -456,81 +440,59 @@ export default function AIEmailSenderPage() {
         </div>
       )}
 
-      {/* ── STEP 3: Config ── */}
+      {/* ── STEP 3: Launch ── */}
       {step === "config" && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+          {/* Campaign summary */}
           <div className="glass-card" style={{ padding: 28, display: "flex", flexDirection: "column", gap: 24 }}>
             <h3 style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
-              <Settings2 size={18} color="var(--accent-blue)" /> Sending Configuration
+              <AlertCircle size={18} color="var(--accent-blue)" /> Campaign Summary
             </h3>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <div>
-                <label style={{ fontSize: "0.78rem", color: "var(--text-muted)", fontWeight: 600, display: "block", marginBottom: 6 }}>
-                  Daily Limit
-                </label>
-                <input type="number" className="input" min={1} max={rows.length} value={dailyLimit} onChange={e => setDailyLimit(Number(e.target.value))} />
-                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: 4 }}>{rows.length} contacts loaded</div>
-              </div>
-              <div>
-                <label style={{ fontSize: "0.78rem", color: "var(--text-muted)", fontWeight: 600, display: "block", marginBottom: 6 }}>
-                  Delay Between Sends (sec)
-                </label>
-                <input type="number" className="input" min={1} value={delaySecs} onChange={e => setDelaySecs(Number(e.target.value))} />
-                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: 4 }}>Avoids spam filters</div>
-              </div>
-            </div>
 
             <div style={{ padding: 16, background: "rgba(255,214,0,0.06)", border: "1px solid rgba(255,214,0,0.2)", borderRadius: "var(--radius-md)" }}>
-              <div style={{ fontWeight: 600, fontSize: "0.85rem", marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
-                <AlertCircle size={14} color="#ffd600" /> Campaign Summary
-              </div>
               <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", lineHeight: 2 }}>
-                <div>📨 Will process: <strong style={{ color: "var(--text-primary)" }}>{Math.min(dailyLimit, rows.length)} contacts</strong></div>
-                <div>⏱ Time estimate: <strong style={{ color: "var(--text-primary)" }}>~{Math.round((Math.min(dailyLimit, rows.length) * delaySecs) / 60)} minutes</strong></div>
+                <div>📨 Contacts to send: <strong style={{ color: "var(--text-primary)" }}>{rows.length}</strong></div>
                 <div>📋 Email column: <strong style={{ color: "var(--text-primary)" }}>{emailColumn}</strong></div>
+                <div>🏷️ Name column: <strong style={{ color: "var(--text-primary)" }}>{nameColumn}</strong></div>
+                <div>📝 Data source: <strong style={{ color: "var(--text-primary)" }}>{sheetTitle || "CSV"}</strong></div>
               </div>
             </div>
+
+            <div style={{ padding: 16, background: "rgba(108,99,255,0.08)", border: "1px solid rgba(108,99,255,0.2)", borderRadius: "var(--radius-md)", fontSize: "0.82rem", color: "var(--text-muted)", lineHeight: 1.7 }}>
+              <strong style={{ color: "var(--accent-purple)" }}>How it works:</strong> Your contacts and instructions are sent to n8n, which will use AI to write a unique, personalized email for each recipient and dispatch them via Gmail — no generation happens in the browser.
+            </div>
+
+            <button className="btn btn-ghost" onClick={() => setStep("template")}>
+              ← Back to Instructions
+            </button>
           </div>
 
+          {/* Launch actions */}
           <div className="glass-card" style={{ padding: 28, display: "flex", flexDirection: "column", gap: 16 }}>
             <h3 style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
-              <Play size={18} color="var(--accent-green)" /> Launch Campaign
+              <Send size={18} color="var(--accent-green)" /> Launch Campaign
             </h3>
 
-            {/* Preview Mode */}
-            <div style={{ padding: 20, background: "rgba(0,212,255,0.06)", border: "1px solid rgba(0,212,255,0.2)", borderRadius: "var(--radius-md)" }}>
-              <div style={{ fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
-                <Eye size={16} color="var(--accent-blue)" /> Preview Mode
-              </div>
-              <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: 14, lineHeight: 1.6 }}>
-                AI will generate all personalized emails and show them to you — but nothing will actually be sent. Perfect for reviewing before launch.
-              </p>
-              <button
-                className="btn btn-secondary"
-                style={{ width: "100%" }}
-                onClick={() => runCampaign(false)}
-                disabled={isRunning}
-              >
-                <Eye size={16} /> Generate Previews
-              </button>
-            </div>
-
-            {/* Send Mode */}
+            {/* Send Now via n8n */}
             <div style={{ padding: 20, background: "linear-gradient(145deg, rgba(108,99,255,0.1) 0%, rgba(168,85,247,0.1) 100%)", border: "1px solid rgba(168,85,247,0.3)", borderRadius: "var(--radius-md)" }}>
               <div style={{ fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
-                <Send size={16} color="var(--accent-purple)" /> Live Send via Gmail
+                <Zap size={16} color="var(--accent-purple)" /> Trigger n8n Now
               </div>
               <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: 14, lineHeight: 1.6 }}>
-                Generates & sends each email from your connected Gmail account with the configured delay between each send.
+                Immediately hand off all contacts and your instructions to n8n. It will generate and send each email autonomously in the background.
               </p>
               <button
+                id="trigger-n8n-now-btn"
                 className="btn btn-primary"
                 style={{ width: "100%" }}
-                onClick={() => runCampaign(true)}
-                disabled={isRunning}
+                onClick={handleSendNow}
+                disabled={isScheduling}
               >
-                <Send size={16} /> Send Campaign Now
+                {isScheduling ? (
+                  <><Loader size={16} className="animate-spin" /> Dispatching...</>
+                ) : (
+                  <><Send size={16} /> Send via n8n Now</>
+                )}
               </button>
             </div>
 
@@ -540,133 +502,28 @@ export default function AIEmailSenderPage() {
                 <Calendar size={16} color="var(--accent-purple)" /> Advanced Scheduling
               </div>
               <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: 14, lineHeight: 1.6 }}>
-                Build a pattern to distribute emails over 30 days automatically while your PC is off.
+                Build a drip schedule to spread emails over multiple days. n8n will receive the full schedule and handle timed dispatch.
               </p>
               <button
+                id="schedule-campaign-btn"
                 className="btn btn-secondary"
                 style={{ width: "100%" }}
                 onClick={() => setIsScheduleOpen(true)}
-                disabled={isRunning || isScheduling}
+                disabled={isScheduling}
               >
                 <Calendar size={16} /> {isScheduling ? "Saving..." : "Schedule For Later"}
               </button>
             </div>
-
-            <button className="btn btn-ghost" onClick={() => setStep("template")}>
-              ← Back to Template
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── STEP 4: Results ── */}
-      {step === "results" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          {/* Summary bar */}
-          {summary && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-              {[
-                { label: "Total Processed", value: summary.total, color: "#6c63ff" },
-                { label: "Sent / Previewed", value: summary.sent + summary.previews, color: "#00e676" },
-                { label: "Failed", value: summary.failed, color: "#ff5252" },
-                { label: "Mode", value: summary.sent > 0 ? "Live" : "Preview", color: "#00d4ff" },
-              ].map(({ label, value, color }) => (
-                <div key={label} className="glass-card" style={{ padding: 16, textAlign: "center" }}>
-                  <div style={{ fontSize: "1.5rem", fontWeight: 800, color }}>{value}</div>
-                  <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {isRunning && (
-            <div className="glass-card" style={{ padding: 40, textAlign: "center" }}>
-              <Loader size={32} className="animate-spin" style={{ margin: "0 auto 16px", color: "var(--accent-purple)" }} />
-              <p style={{ color: "var(--text-muted)", marginBottom: 6 }}>AI is generating personalized emails...</p>
-              <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>This may take a moment. Do not close this tab.</p>
-            </div>
-          )}
-
-          {results.length > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-              {/* Results list */}
-              <div className="glass-card" style={{ padding: 0, overflow: "hidden" }}>
-                <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border-subtle)", fontWeight: 700, fontSize: "0.9rem" }}>
-                  📬 Email Results
-                </div>
-                <div style={{ overflowY: "auto", maxHeight: 480 }}>
-                  {results.map((r, i) => (
-                    <div
-                      key={i}
-                      onClick={() => setSelectedResult(r)}
-                      style={{
-                        padding: "12px 20px",
-                        borderBottom: "1px solid var(--border-subtle)",
-                        cursor: "pointer",
-                        background: selectedResult?.email === r.email ? "rgba(108,99,255,0.08)" : "transparent",
-                        display: "flex", alignItems: "center", gap: 12, transition: "background 0.15s",
-                      }}
-                    >
-                      <div>
-                        {r.status === "sent" ? <CheckCircle size={16} color="var(--accent-green)" /> :
-                          r.status === "preview" ? <Eye size={16} color="var(--accent-blue)" /> :
-                            <XCircle size={16} color="#ff5252" />}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: "0.85rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name || r.email}</div>
-                        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.subject || r.error || r.email}</div>
-                      </div>
-                      <span className={`badge ${r.status === "sent" ? "badge-green" : r.status === "preview" ? "badge-blue" : "badge-muted"}`} style={{ fontSize: "0.65rem", flexShrink: 0 }}>
-                        {r.status}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Email preview panel */}
-              <div className="glass-card" style={{ padding: 24, display: "flex", flexDirection: "column" }}>
-                {selectedResult ? (
-                  <>
-                    <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: "1px solid var(--border-subtle)" }}>
-                      <div style={{ fontWeight: 700, fontSize: "0.9rem", marginBottom: 4 }}>To: {selectedResult.email}</div>
-                      <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--accent-purple)" }}>Subject: {selectedResult.subject}</div>
-                    </div>
-                    <div style={{ flex: 1, overflowY: "auto", fontSize: "0.88rem", lineHeight: 1.8, color: "var(--text-primary)", whiteSpace: "pre-wrap" }}>
-                      {selectedResult.status === "failed" ? (
-                        <div style={{ color: "#ff5252", display: "flex", alignItems: "center", gap: 8 }}>
-                          <XCircle size={16} /> {selectedResult.error}
-                        </div>
-                      ) : selectedResult.preview}
-                    </div>
-                  </>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text-muted)", gap: 8 }}>
-                    <Mail size={32} />
-                    <p style={{ fontSize: "0.85rem" }}>Click a result to preview the email</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div style={{ display: "flex", gap: 10 }}>
-            <button className="btn btn-secondary" onClick={() => { setStep("source"); setRows([]); setResults([]); setSummary(null); setSheetUrl(""); }}>
-              <RefreshCw size={16} /> Start New Campaign
-            </button>
-            <button className="btn btn-ghost" onClick={() => setStep("config")}>
-              ← Back to Config
-            </button>
           </div>
         </div>
       )}
 
       {/* Modals */}
-      <ScheduleModal 
-        isOpen={isScheduleOpen} 
-        onClose={() => setIsScheduleOpen(false)} 
-        onSave={handleSaveSchedule} 
-        totalLeads={rows.length} 
+      <ScheduleModal
+        isOpen={isScheduleOpen}
+        onClose={() => setIsScheduleOpen(false)}
+        onSave={handleSaveSchedule}
+        totalLeads={rows.length}
       />
     </div>
   );

@@ -117,21 +117,8 @@ export async function POST(request: Request) {
       throw new Error(`Failed to map campaign leads: ${clError.message}`);
     }
 
-    // 4. Save the Pattern Schedules (Keeping for UI reference, though cron skips it now)
-    const scheduleData = schedules.map((s: any) => ({
-      campaign_id: campaign.id,
-      user_id: user.id,
-      day_index: s.dayIndex,
-      range_start: s.rangeStart,
-      range_end: s.rangeEnd,
-      time_slots: s.times,
-      is_active: true
-    }));
-
-    const { error: schedError } = await supabase.from("campaign_schedules").insert(scheduleData);
-    if (schedError) {
-      throw new Error(`Failed to save schedules: ${schedError.message}`);
-    }
+    // NOTE: campaign_schedules insert removed — scheduling is now owned by n8n.
+    // The campaign_leads table with scheduled_at timestamps is the source of truth.
 
     return NextResponse.json({ success: true, campaignId: campaign.id });
 

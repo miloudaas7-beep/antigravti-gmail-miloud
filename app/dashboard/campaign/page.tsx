@@ -196,7 +196,7 @@ export default function HyperCampaignPage() {
     if (!campaignSchedule) return toast.error("No schedule set.");
     if (rows.length === 0) return toast.error("No contacts loaded.");
 
-    toast.loading(`Saving Advanced Schedule for ${rows.length} contacts...`, { id: "sched" });
+    toast.loading(`Queuing ${rows.length} contacts for n8n...`, { id: "sched" });
     try {
       const combinedPrompt = `Base Template:\n${baseEmailTemplate}\n\nCustom Instructions:\n${customInstructions}\n\nStartup Rules:\n${startupRules}\n\nEnterprise Rules:\n${enterpriseRules}\n\nTarget Country: ${targetCountry}`;
       
@@ -209,15 +209,16 @@ export default function HyperCampaignPage() {
         settings: campaignSchedule.settings
       };
 
-      const res = await fetch("/api/campaign/schedule", {
+      // ✅ Use /api/trigger-n8n — n8n generates & schedules, no local drafts
+      const res = await fetch("/api/trigger-n8n", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to schedule");
+      if (!res.ok) throw new Error(data.error || "Failed to queue campaign");
       
-      toast.success(`Successfully scheduled campaign for ${rows.length} contacts! The system will generate and send them automatically.`, { id: "sched", duration: 8000 });
+      toast.success(`✅ ${data.queued ?? rows.length} emails queued! n8n will generate and send them at the scheduled times.`, { id: "sched", duration: 8000 });
       setCampaignSchedule(null);
       setLeads([]);
       setStep("setup");
@@ -651,7 +652,7 @@ export default function HyperCampaignPage() {
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.83rem" }}>
                 <thead>
                   <tr style={{ background: "var(--bg-secondary)" }}>
-                    {["Company", "Email", "Company Size", "Location", "Email Draft", "Actions"].map((h) => (
+                    {["Company", "Email", "Company Size", "Location", "Actions"].map((h) => (
                       <th key={h} style={{ padding: "10px 16px", textAlign: "left", color: "var(--text-muted)", fontWeight: 600, fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid var(--border-subtle)", whiteSpace: "nowrap" }}>{h}</th>
                     ))}
                   </tr>
@@ -679,50 +680,7 @@ export default function HyperCampaignPage() {
                       </td>
                       {/* Location */}
                       <td style={{ padding: "12px 16px", color: "var(--text-muted)", fontSize: "0.78rem" }}>{lead.address}</td>
-                      {/* Draft */}
-                      <td style={{ padding: "12px 16px", maxWidth: 280 }}>
-                        {editingIndex === i ? (
-                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                            <input
-                              className="input"
-                              value={editSubject}
-                              onChange={(e) => setEditSubject(e.target.value)}
-                              style={{ fontSize: "0.78rem", padding: "6px 10px" }}
-                              placeholder="Subject..."
-                            />
-                            <textarea
-                              className="input"
-                              rows={4}
-                              value={editBody}
-                              onChange={(e) => setEditBody(e.target.value)}
-                              style={{ fontSize: "0.76rem", resize: "vertical", lineHeight: 1.5 }}
-                            />
-                            <div style={{ display: "flex", gap: 6 }}>
-                              <button className="btn btn-primary" style={{ padding: "4px 12px", fontSize: "0.75rem" }} onClick={() => saveEdit(i)}>
-                                <Check size={12} /> Save
-                              </button>
-                              <button className="btn btn-ghost" style={{ padding: "4px 10px", fontSize: "0.75rem" }} onClick={() => setEditingIndex(null)}>
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div>
-                            {lead.status === "failed" ? (
-                              <span style={{ color: "#ff5252", fontSize: "0.78rem" }}>⚠️ {lead.error}</span>
-                            ) : (
-                              <>
-                                <div style={{ fontWeight: 600, marginBottom: 3, color: "var(--accent-purple)", fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  {lead.subject}
-                                </div>
-                                <div style={{ color: "var(--text-muted)", fontSize: "0.76rem", lineHeight: 1.5, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
-                                  {lead.body}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        )}
-                      </td>
+                      {/* Actions — Draft column removed: n8n handles generation */}
                       {/* Actions */}
                       <td style={{ padding: "12px 16px" }}>
                         {lead.status === "sent" ? (
