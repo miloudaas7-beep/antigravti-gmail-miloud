@@ -165,8 +165,11 @@ CREATE TABLE public.campaign_leads (
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
   icebreaker TEXT,
   status TEXT DEFAULT 'pending', -- 'pending' | 'sent' | 'failed'
+  scheduled_at TIMESTAMPTZ,
   sent_at TIMESTAMPTZ,
-  error_message TEXT
+  error_message TEXT,
+  retry_count INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE public.campaign_leads ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users manage campaign_leads" ON public.campaign_leads USING (auth.uid() = user_id);
